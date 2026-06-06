@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Authentication keys (DO NOT COMMIT THESE TO GITHUB)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Log files
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
