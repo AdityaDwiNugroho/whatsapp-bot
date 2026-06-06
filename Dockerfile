@@ -22,7 +22,7 @@ WORKDIR /usr/src/app
 
 # Copy dependency definitions and install packages
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # Copy the rest of the application files
 COPY . .
