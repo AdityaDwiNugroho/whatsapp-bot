@@ -27,8 +27,8 @@ RUN npm ci --only=production
 # Copy the rest of the application files
 COPY . .
 
-# Expose the port defined by Express (default: 3000)
-EXPOSE 3000
+# Expose the port defined by Express (default: 7860)
+EXPOSE 7860
 
 # Command to execute the bot
 CMD ["npm", "start"]

@@ -5,7 +5,7 @@ import express from 'express';
 import QRCode from 'qrcode';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7860;
 
 let botStatus = 'Initializing...';
 let latestQrCode = null;
