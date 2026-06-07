@@ -70,6 +70,33 @@ class CustomRemoteAuth extends RemoteAuth {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Save PID for local stopping script
+try {
+  fs.writeFileSync(path.join(__dirname, 'bot.pid'), process.pid.toString());
+} catch (pidErr) {
+  console.error('[-] Failed to write PID file:', pidErr.message);
+}
+
+// Graceful shutdown helpers
+const cleanupAndExit = async () => {
+  console.log('[+] Shutting down gracefully...');
+  if (typeof client !== 'undefined' && client) {
+    try {
+      await client.destroy();
+    } catch (err) {}
+  }
+  try {
+    const pidFile = path.join(__dirname, 'bot.pid');
+    if (fs.existsSync(pidFile)) {
+      fs.unlinkSync(pidFile);
+    }
+  } catch (err) {}
+  process.exit(0);
+};
+
+process.on('SIGINT', cleanupAndExit);
+process.on('SIGTERM', cleanupAndExit);
+
 const app = express();
 const PORT = process.env.PORT || 7860;
 
