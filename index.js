@@ -71,6 +71,19 @@ class CustomRemoteAuth extends RemoteAuth {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Decorate console.log and console.error to prepend timestamps in the terminal
+const originalLog = console.log;
+console.log = (...args) => {
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  originalLog(`[${time}]`, ...args);
+};
+
+const originalError = console.error;
+console.error = (...args) => {
+  const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  originalError(`[${time}]`, ...args);
+};
+
 // Load local .env file if it exists
 try {
   const envPath = path.join(__dirname, '.env');
