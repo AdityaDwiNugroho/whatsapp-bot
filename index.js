@@ -1077,14 +1077,24 @@ function initializeClient() {
                 }
 
                 if (stickerToMessage) {
-                  setTimeout(async () => {
-                    try {
-                      await client.sendMessage(msg.from, stickerToMessage, { sendMediaAsSticker: true });
-                      console.log(`[AI-RESPONSE] Sent sticker reaction to ${senderName}`);
-                    } catch (stickErr) {
-                      console.error('[-] Failed sending sticker:', stickErr.message);
-                    }
-                  }, cleanText ? 1000 : 0);
+                  const cleanSenderName = senderName.toLowerCase();
+                  const isFormalContact = cleanSenderName.includes('pak') || 
+                                          cleanSenderName.includes('bu') || 
+                                          cleanSenderName.includes('prof') || 
+                                          cleanSenderName.includes('dosen');
+                  
+                  if (isFormalContact) {
+                    console.log(`[SAFEGUARD] Blocked sticker sending to formal contact: ${senderName}`);
+                  } else {
+                    setTimeout(async () => {
+                      try {
+                        await client.sendMessage(msg.from, stickerToMessage, { sendMediaAsSticker: true });
+                        console.log(`[AI-RESPONSE] Sent sticker reaction to ${senderName}`);
+                      } catch (stickErr) {
+                        console.error('[-] Failed sending sticker:', stickErr.message);
+                      }
+                    }, cleanText ? 1000 : 0);
+                  }
                 }
               }
             } catch (err) {
