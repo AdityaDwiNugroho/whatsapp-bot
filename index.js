@@ -1,11 +1,13 @@
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth, MessageMedia } = pkg;
+const { Client, LocalAuth, RemoteAuth, MessageMedia } = pkg;
 import qrcodeTerminal from 'qrcode-terminal';
 import express from 'express';
 import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
+import { MongoStore } from 'wwebjs-mongo';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -111,57 +113,6 @@ const checkPassword = (req, res, next) => {
   return res.status(401).json({ error: 'Unauthorized. Please check your Password.' });
 };
 
-// Initialize WhatsApp Client
-const client = new Client({
-  authStrategy: new LocalAuth({
-    dataPath: './.wwebjs_auth' // Stores session locally to keep login (cookies/keys)
-  }),
-  puppeteer: {
-    headless: true,
-    executablePath: process.env.CHROME_PATH || null,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-accelerated-2d-canvas',
-      '--no-first-run',
-      '--no-zygote',
-      '--single-process',
-      '--disable-gpu'
-    ]
-  }
-});
-
-// Event: QR Code generated
-client.on('qr', (qr) => {
-  latestQrCode = qr;
-  botStatus = 'QR Code generated. Scan to login.';
-  console.log('\n[+] QR Code generated! Scan it in the terminal or on the web dashboard:');
-  qrcodeTerminal.generate(qr, { small: true });
-});
-
-// Event: Authenticated successfully
-client.on('authenticated', () => {
-  botStatus = 'Authenticated!';
-  latestQrCode = null;
-  console.log('[+] Authenticated successfully!');
-});
-
-// Event: Auth Failure
-client.on('auth_failure', (msg) => {
-  botStatus = 'Authentication Failed!';
-  console.error('[-] Auth failure:', msg);
-});
-
-// Event: Ready (connected to WhatsApp Web)
-client.on('ready', () => {
-  botStatus = 'Connected & Running!';
-  latestQrCode = null;
-  console.log('\n=========================================');
-  console.log('   WHATSAPP AUTOMATION BOT IS READY!     ');
-  console.log('=========================================');
-});
-
 // Helper: Formats phone numbers to WhatsApp JID format
 function formatPhoneNumber(num) {
   let clean = num.replace(/[^\d]/g, '');
@@ -174,135 +125,244 @@ function formatPhoneNumber(num) {
   return clean;
 }
 
-// Event: Handling incoming and outgoing messages in real-time
-client.on('message_create', async (msg) => {
-  try {
-    const chat = await msg.getChat();
-    if (chat.isGroup) return; // Skip group chats
+// Puppeteer configuration (container ready)
+function getPuppeteerConfig() {
+  return {
+    headless: true,
+    executablePath: process.env.CHROME_PATH || null,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process',
+      '--disable-gpu'
+    ]
+  };
+}
 
-    // Extract sender details
-    let senderName = '';
-    const ownerNumber = client.info && client.info.wid ? client.info.wid.user : '';
-    const senderNumber = msg.from.split('@')[0];
-    
-    // Strict Owner Verification check
-    const isOwner = msg.fromMe || (senderNumber === ownerNumber);
+// Centralized WhatsApp Client Events Binder
+function initializeClient() {
+  // Event: QR Code generated
+  client.on('qr', (qr) => {
+    latestQrCode = qr;
+    botStatus = 'QR Code generated. Scan to login.';
+    console.log('\n[+] QR Code generated! Scan it in the terminal or on the web dashboard:');
+    qrcodeTerminal.generate(qr, { small: true });
+  });
 
-    if (msg.fromMe) {
-      senderName = 'Me';
-    } else {
-      const contact = await msg.getContact();
-      senderName = contact.name || contact.pushname || senderNumber;
-    }
+  // Event: Authenticated successfully
+  client.on('authenticated', () => {
+    botStatus = 'Authenticated!';
+    latestQrCode = null;
+    console.log('[+] Authenticated successfully!');
+  });
 
-    const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+  // Event: Auth Failure
+  client.on('auth_failure', (msg) => {
+    botStatus = 'Authentication Failed!';
+    console.error('[-] Auth failure:', msg);
+  });
 
-    // Detect if this outgoing message is an auto-reply response
-    const isAutoReply = msg.fromMe && autoReplies.some(r => r.response === msg.body);
+  // Event: Ready (connected to WhatsApp Web)
+  client.on('ready', () => {
+    botStatus = 'Connected & Running!';
+    latestQrCode = null;
+    console.log('\n=========================================');
+    console.log('   WHATSAPP AUTOMATION BOT IS READY!     ');
+    console.log('=========================================');
+  });
 
-    // Filter media body text
-    let bodyText = msg.body || '';
-    if (msg.hasMedia) {
-      bodyText = '[Attachment File]';
-    }
+  // Event: Remote Session Saved (MongoDB Specific)
+  client.on('remote_session_saved', () => {
+    console.log('[+] Session successfully saved to MongoDB database.');
+    botStatus = 'Connected & Session Backed Up!';
+  });
 
-    const messageObj = {
-      id: msg.id.id,
-      timestamp: timestampStr,
-      fromMe: msg.fromMe,
-      sender: senderName,
-      message: bodyText,
-      chatId: msg.fromMe ? msg.to : msg.from,
-      chatName: chat.name || senderName,
-      isAutoReply: isAutoReply
-    };
+  // Event: Handling incoming and outgoing messages in real-time
+  client.on('message_create', async (msg) => {
+    try {
+      const chat = await msg.getChat();
+      if (chat.isGroup) return; // Skip group chats
 
-    // Check for duplicate messages (Puppeteer sometimes fires double events)
-    const isDuplicate = messagesHistory.some(m => m.id === messageObj.id);
-    if (!isDuplicate) {
-      messagesHistory.push(messageObj);
-      saveMessages();
-      console.log(`[MSG] ${msg.fromMe ? 'Out' : 'In'} - ${senderName}: "${bodyText}"`);
-    }
-
-    // --- Strict Administrative PC Commands ---
-    // Only process /pc command if it strictly originates from the owner's WhatsApp number
-    if (isOwner && bodyText.startsWith('/pc ')) {
-      const commandText = bodyText.slice(4).trim();
-      const commandId = Math.random().toString(36).substring(2, 9);
+      // Extract sender details
+      let senderName = '';
+      const ownerNumber = client.info && client.info.wid ? client.info.wid.user : '';
+      const senderNumber = msg.from.split('@')[0];
       
-      pendingCommands.push({
-        id: commandId,
-        command: commandText,
-        chatId: msg.fromMe ? msg.to : msg.from // Send response back to the active thread
-      });
-      
-      await msg.reply(`Command received. Forwarding to PC (ID: ${commandId})...`);
-      return; // Stop processing further auto-replies
-    }
+      // Strict Owner Verification check
+      const isOwner = msg.fromMe || (senderNumber === ownerNumber);
 
-    // Auto-reply logic (only for incoming messages, not from self, and not media)
-    if (!msg.fromMe && !msg.hasMedia) {
-      const text = bodyText.toLowerCase().trim();
-      
-      // Match keywords using Word Boundaries to avoid accidental substring matches (e.g. matching "hi" in "thinking")
-      const matchedRule = autoReplies.find(rule => {
-        const trigger = rule.trigger.toLowerCase().trim();
-        const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); // escape regex specials
-        const boundaryRegex = new RegExp(`\\b${escapedTrigger}\\b`, 'i');
-        return boundaryRegex.test(text);
-      });
-      
-      if (matchedRule) {
-        // Replace placeholders dynamically
-        let responseText = matchedRule.response;
-        responseText = responseText.replace(/{sender}/g, senderName);
-        responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
-        responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
-
-        // Delay reply slightly to simulate human response times
-        setTimeout(async () => {
-          try {
-            await msg.reply(responseText);
-            console.log(`[AUTO-REPLY] Sent response for keyword "${matchedRule.trigger}" to ${senderName}`);
-          } catch (replyErr) {
-            console.error('[-] Failed sending auto reply:', replyErr.message);
-          }
-        }, 1500);
+      if (msg.fromMe) {
+        senderName = 'Me';
       } else {
-        // Fallback Away Message (triggers only if rule for "away" exists in auto-reply rules database)
-        const awayRule = autoReplies.find(rule => rule.trigger.toLowerCase().trim() === 'away-message');
-        if (awayRule) {
-          const lastTriggered = awayCooldowns.get(senderNumber);
-          const now = Date.now();
-          
-          if (!lastTriggered || (now - lastTriggered > COOLDOWN_TIME)) {
-            awayCooldowns.set(senderNumber, now);
-            
-            let responseText = awayRule.response;
-            responseText = responseText.replace(/{sender}/g, senderName);
-            responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
-            responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+        const contact = await msg.getContact();
+        senderName = contact.name || contact.pushname || senderNumber;
+      }
 
-            setTimeout(async () => {
-              try {
-                await msg.reply(responseText);
-                console.log(`[AWAY-MESSAGE] Sent fallback offline response to ${senderName}`);
-              } catch (err) {
-                console.error('[-] Failed sending away message:', err.message);
-              }
-            }, 2000);
+      const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+
+      // Detect if this outgoing message is an auto-reply response
+      const isAutoReply = msg.fromMe && autoReplies.some(r => r.response === msg.body);
+
+      // Filter media body text
+      let bodyText = msg.body || '';
+      if (msg.hasMedia) {
+        bodyText = '[Attachment File]';
+      }
+
+      const messageObj = {
+        id: msg.id.id,
+        timestamp: timestampStr,
+        fromMe: msg.fromMe,
+        sender: senderName,
+        message: bodyText,
+        chatId: msg.fromMe ? msg.to : msg.from,
+        chatName: chat.name || senderName,
+        isAutoReply: isAutoReply
+      };
+
+      // Check for duplicate messages (Puppeteer sometimes fires double events)
+      const isDuplicate = messagesHistory.some(m => m.id === messageObj.id);
+      if (!isDuplicate) {
+        messagesHistory.push(messageObj);
+        saveMessages();
+        console.log(`[MSG] ${msg.fromMe ? 'Out' : 'In'} - ${senderName}: "${bodyText}"`);
+      }
+
+      // --- Strict Administrative PC Commands ---
+      // Only process /pc command if it strictly originates from the owner's WhatsApp number
+      if (isOwner && bodyText.startsWith('/pc ')) {
+        const commandText = bodyText.slice(4).trim();
+        const commandId = Math.random().toString(36).substring(2, 9);
+        
+        pendingCommands.push({
+          id: commandId,
+          command: commandText,
+          chatId: msg.fromMe ? msg.to : msg.from // Send response back to the active thread
+        });
+        
+        await msg.reply(`Command received. Forwarding to PC (ID: ${commandId})...`);
+        return; // Stop processing further auto-replies
+      }
+
+      // Auto-reply logic (only for incoming messages, not from self, and not media)
+      if (!msg.fromMe && !msg.hasMedia) {
+        const text = bodyText.toLowerCase().trim();
+        
+        // Match keywords using Word Boundaries to avoid accidental substring matches (e.g. matching "hi" in "thinking")
+        const matchedRule = autoReplies.find(rule => {
+          const trigger = rule.trigger.toLowerCase().trim();
+          const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); // escape regex specials
+          const boundaryRegex = new RegExp(`\\b${escapedTrigger}\\b`, 'i');
+          return boundaryRegex.test(text);
+        });
+        
+        if (matchedRule) {
+          // Replace placeholders dynamically
+          let responseText = matchedRule.response;
+          responseText = responseText.replace(/{sender}/g, senderName);
+          responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+          responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+
+          // Delay reply slightly to simulate human response times
+          setTimeout(async () => {
+            try {
+              await msg.reply(responseText);
+              console.log(`[AUTO-REPLY] Sent response for keyword "${matchedRule.trigger}" to ${senderName}`);
+            } catch (replyErr) {
+              console.error('[-] Failed sending auto reply:', replyErr.message);
+            }
+          }, 1500);
+        } else {
+          // Fallback Away Message (triggers only if rule for "away" exists in auto-reply rules database)
+          const awayRule = autoReplies.find(rule => rule.trigger.toLowerCase().trim() === 'away-message');
+          if (awayRule) {
+            const lastTriggered = awayCooldowns.get(senderNumber);
+            const now = Date.now();
+            
+            if (!lastTriggered || (now - lastTriggered > COOLDOWN_TIME)) {
+              awayCooldowns.set(senderNumber, now);
+              
+              let responseText = awayRule.response;
+              responseText = responseText.replace(/{sender}/g, senderName);
+              responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+              responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+
+              setTimeout(async () => {
+                try {
+                  await msg.reply(responseText);
+                  console.log(`[AWAY-MESSAGE] Sent fallback offline response to ${senderName}`);
+                } catch (err) {
+                  console.error('[-] Failed sending away message:', err.message);
+                }
+              }, 2000);
+            }
           }
         }
       }
+    } catch (err) {
+      console.error('[-] Error handling message_create event:', err.message);
     }
-  } catch (err) {
-    console.error('[-] Error handling message_create event:', err.message);
-  }
-});
+  });
+
+  console.log('[+] Initializing WhatsApp client...');
+  client.initialize();
+}
+
+// --- Dynamic Client Auth Strategy Selector ---
+let client;
+const mongoUri = process.env.MONGODB_URI;
+
+if (mongoUri) {
+  console.log('[+] Connecting to MongoDB for remote session backup...');
+  botStatus = 'Connecting to Database...';
+  
+  mongoose.connect(mongoUri)
+    .then(() => {
+      console.log('[+] Connected to MongoDB successfully.');
+      const store = new MongoStore({ mongoose: mongoose });
+      client = new Client({
+        authStrategy: new RemoteAuth({
+          store: store,
+          backupSyncIntervalMs: 60000 // Sync backup session to database every minute
+        }),
+        puppeteer: getPuppeteerConfig()
+      });
+      initializeClient();
+    })
+    .catch(err => {
+      console.error('[-] MongoDB connection failed. Falling back to local authentication:', err.message);
+      setupLocalClient();
+    });
+} else {
+  console.log('[+] No MONGODB_URI detected. Using local authentication.');
+  setupLocalClient();
+}
+
+function setupLocalClient() {
+  client = new Client({
+    authStrategy: new LocalAuth({
+      dataPath: './.wwebjs_auth'
+    }),
+    puppeteer: getPuppeteerConfig()
+  });
+  initializeClient();
+}
 
 // REST API: Get Bot Status
 app.get('/api/status', (req, res) => {
+  if (!client) {
+    return res.json({
+      status: 'Connecting to Database...',
+      authenticated: false,
+      phone: null,
+      pushname: null,
+      qrPending: false
+    });
+  }
   res.json({
     status: botStatus,
     authenticated: client.info ? true : false,
@@ -443,7 +503,3 @@ app.listen(PORT, () => {
   console.log(`[+] Web control panel and API running at http://localhost:${PORT}`);
   console.log(`[+] Dashboard security: ${process.env.DASHBOARD_PASSWORD ? 'ENABLED' : 'DISABLED (Set DASHBOARD_PASSWORD env variable to secure)'}`);
 });
-
-// Start WhatsApp Client
-console.log('[+] Initializing WhatsApp client...');
-client.initialize();

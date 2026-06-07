@@ -1,7 +1,7 @@
 {
   "name": "whatsapp-bot",
   "version": "1.0.0",
-  "description": "WhatsApp automation bot ready for Render.com deployment",
+  "description": "WhatsApp automation bot ready for Hugging Face Spaces deployment",
   "main": "index.js",
   "type": "module",
   "scripts": {
@@ -11,6 +11,8 @@
     "whatsapp-web.js": "^1.23.0",
     "qrcode-terminal": "^0.12.0",
     "express": "^4.19.2",
-    "qrcode": "^1.5.3"
+    "qrcode": "^1.5.3",
+    "mongoose": "^8.3.0",
+    "wwebjs-mongo": "^1.1.0"
   }
 }
