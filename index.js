@@ -10,8 +10,39 @@ import mongoose from 'mongoose';
 import { MongoStore } from 'wwebjs-mongo';
 import AdmZip from 'adm-zip';
 
-// Custom RemoteAuth class to bypass unzipper extraction failures
+// Custom RemoteAuth class to bypass unzipper extraction failures and prune cache before saving
 class CustomRemoteAuth extends RemoteAuth {
+  async storeRemoteSession(options) {
+    try {
+      const defaultDir = path.join(this.userDataDir, 'Default');
+      const targets = [
+        path.join(defaultDir, 'Cache'),
+        path.join(defaultDir, 'Code Cache'),
+        path.join(defaultDir, 'GPUCache'),
+        path.join(defaultDir, 'Service Worker', 'CacheStorage'),
+        path.join(defaultDir, 'Service Worker', 'ScriptCache'),
+        path.join(defaultDir, 'Service Worker', 'ServiceWorkerCache'),
+        path.join(defaultDir, 'CacheStorage'),
+        path.join(defaultDir, 'Blob_storage')
+      ];
+
+      for (const target of targets) {
+        try {
+          if (fs.existsSync(target)) {
+            await fs.promises.rm(target, { recursive: true, force: true });
+            console.log(`[+] Pruned cache directory: ${target}`);
+          }
+        } catch (err) {
+          console.log(`[warning] Could not prune cache directory ${target}: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      console.error('[-] Error during chrome cache pruning:', err.message);
+    }
+
+    return super.storeRemoteSession(options);
+  }
+
   async unCompressSession(compressedSessionPath) {
     await new Promise((resolve, reject) => {
       try {
@@ -258,8 +289,10 @@ function getPuppeteerConfig() {
       '--disable-accelerated-2d-canvas',
       '--no-first-run',
       '--no-zygote',
-      '--single-process',
       '--disable-gpu',
+      '--disk-cache-size=1',
+      '--media-cache-size=1',
+      '--disable-features=site-per-process',
       '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     ]
   };
@@ -401,9 +434,9 @@ function initializeClient() {
     console.log('   WHATSAPP AUTOMATION BOT IS READY!     ');
     console.log('=========================================');
 
-    // Trigger an immediate remote session backup in 10 seconds to ensure the session is saved to MongoDB
+    // Trigger an immediate remote session backup in 30 seconds to ensure the session is saved to MongoDB
     if (client.authStrategy instanceof RemoteAuth) {
-      console.log('[+] Triggering immediate session backup to MongoDB in 10 seconds...');
+      console.log('[+] Triggering immediate session backup to MongoDB in 30 seconds...');
       setTimeout(async () => {
         try {
           await client.authStrategy.storeRemoteSession({ emit: true });
@@ -411,7 +444,7 @@ function initializeClient() {
         } catch (err) {
           console.error('[-] Error during immediate session backup:', err.message);
         }
-      }, 10000);
+      }, 30000);
     }
   });
 
