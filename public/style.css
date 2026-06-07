@@ -1297,3 +1297,20 @@ body {
   word-break: break-word;
   padding: 2px 4px;
 }
+
+/* --- Deleted Messages Preservation --- */
+.deleted-message {
+  border: 1px dashed rgba(239, 68, 110, 0.35) !important;
+  background: rgba(239, 68, 110, 0.05) !important;
+  opacity: 0.9;
+}
+
+.deleted-tag {
+  font-size: 9px;
+  background: rgba(239, 68, 110, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 110, 0.25);
+  padding: 1px 5px;
+  border-radius: 8px;
+  font-weight: 500;
+}

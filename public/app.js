@@ -494,15 +494,18 @@ function renderChatThread() {
   messagesScroller.innerHTML = sorted.map(msg => {
     const directionClass = msg.fromMe ? 'outgoing' : 'incoming';
     const tagHtml = msg.isAutoReply ? '<span class="autoreply-tag">Auto Reply</span>' : '';
+    const deletedHtml = msg.isDeleted ? '<span class="deleted-tag">Dihapus</span>' : '';
     const formattedBody = msg.message.replace(/\n/g, '<br>');
+    const bubbleClass = msg.isDeleted ? 'message-bubble deleted-message' : 'message-bubble';
     
     return `
       <div class="bubble-row ${directionClass}">
-        <div class="message-bubble">
+        <div class="${bubbleClass}">
           <div class="bubble-text">${formattedBody}</div>
           <div class="bubble-footer">
             <span class="bubble-time">${formatTime(msg.timestamp)}</span>
             ${tagHtml}
+            ${deletedHtml}
           </div>
         </div>
       </div>

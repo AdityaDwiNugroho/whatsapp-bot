@@ -811,6 +811,58 @@ function initializeClient() {
     botStatus = 'Connected & Session Backed Up!';
   });
 
+  // Event: Handling message deletion/revocation
+  client.on('message_revoke_everyone', async (after, before) => {
+    try {
+      const msgId = after.id.id;
+      const index = messagesHistory.findIndex(m => m.id === msgId);
+      if (index > -1) {
+        messagesHistory[index].isDeleted = true;
+        if (before && before.body) {
+          let bodyText = before.body || '';
+          if (before.hasMedia) {
+            bodyText = '[Attachment File]';
+          }
+          messagesHistory[index].message = bodyText;
+        }
+        saveMessages();
+        console.log(`[REVOKE] Preserved deleted message ${msgId} content: "${messagesHistory[index].message}"`);
+      } else if (before) {
+        let bodyText = before.body || '';
+        if (before.hasMedia) {
+          bodyText = '[Attachment File]';
+        }
+        const senderNumber = before.from.split('@')[0];
+        let senderName = senderNumber;
+        const saved = savedContacts.find(c => c.phone === senderNumber);
+        if (saved) {
+          senderName = saved.name;
+        } else {
+          try {
+            const contact = await before.getContact();
+            senderName = contact.name || contact.pushname || senderNumber;
+          } catch (e) {}
+        }
+        const timestampStr = formatLocalTimestamp(before.timestamp);
+        messagesHistory.push({
+          id: before.id.id,
+          timestamp: timestampStr,
+          fromMe: before.fromMe,
+          sender: before.fromMe ? 'Me' : senderName,
+          message: bodyText,
+          chatId: before.fromMe ? before.to : before.from,
+          chatName: senderName,
+          isAutoReply: false,
+          isDeleted: true
+        });
+        saveMessages();
+        console.log(`[REVOKE] Preserved uncached deleted message ${before.id.id} content: "${bodyText}"`);
+      }
+    } catch (err) {
+      console.error('[-] Error handling message_revoke_everyone event:', err.message);
+    }
+  });
+
   // Event: Handling incoming and outgoing messages in real-time
   client.on('message_create', async (msg) => {
     try {
