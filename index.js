@@ -146,10 +146,25 @@ const settingsPath = path.join(__dirname, 'bot_settings.json');
 const contactsPath = path.join(__dirname, 'saved_contacts.json');
 const statusesPath = path.join(__dirname, 'statuses_history.json');
 const statusMediaDir = path.join(__dirname, 'public', 'status_media');
+const stickersDir = path.join(__dirname, 'stickers');
 
-// Ensure public/status_media directory exists
+// Ensure directories exist
 if (!fs.existsSync(statusMediaDir)) {
   fs.mkdirSync(statusMediaDir, { recursive: true });
+}
+if (!fs.existsSync(stickersDir)) {
+  fs.mkdirSync(stickersDir, { recursive: true });
+}
+
+function getStickerNames() {
+  try {
+    const files = fs.readdirSync(stickersDir);
+    return files
+      .filter(f => f.endsWith('.webp') || f.endsWith('.png') || f.endsWith('.jpg') || f.endsWith('.jpeg'))
+      .map(f => path.parse(f).name);
+  } catch (e) {
+    return [];
+  }
 }
 
 // Memory storage
@@ -644,6 +659,12 @@ async function generateGeminiResponse(chatId, senderName) {
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`;
   
+  const stickerNames = getStickerNames();
+  let stickerContext = "";
+  if (stickerNames.length > 0) {
+    stickerContext = `\n\nYou also have the capability to reply with a sticker as a reaction. The available stickers you can send are: ${stickerNames.map(s => `'${s}'`).join(', ')}. If you want to send a sticker, you MUST append the following tag to your response: [SEND_STICKER: name="sticker_name"] (replace 'sticker_name' with one of the available stickers). Do not output this tag unless you want to send a sticker.`;
+  }
+
   // Inject context helper in system instruction
   const systemInstructionText = `${botSettings.systemPrompt}
 
@@ -654,7 +675,7 @@ You MUST append the following tag to the very end of your message response:
 
 Replace 'Desired Name' with the name they requested.
 Replace 'whatsapp_number_or_JID_digits' with their phone number digits (e.g. "628123456789"). You can use the active contact's phone number JID digits provided below if they say "save my number".
-Do not output this tag unless name saving/updating was explicitly requested.
+Do not output this tag unless name saving/updating was explicitly requested.${stickerContext}
 
 Additional Context:
 - Current Date/Time: ${new Date().toLocaleString('id-ID')}
@@ -997,11 +1018,11 @@ function initializeClient() {
                 
                 // Parse for [SAVE_CONTACT: name="...", phone="..."]
                 const saveRegex = /\[SAVE_CONTACT:\s*name=["']([^"']+)["']\s*,\s*phone=["']([^"']+)["']\]/i;
-                const match = cleanText.match(saveRegex);
+                const saveMatch = cleanText.match(saveRegex);
                 
-                if (match) {
-                  const contactName = match[1].trim();
-                  const rawPhone = match[2].trim();
+                if (saveMatch) {
+                  const contactName = saveMatch[1].trim();
+                  const rawPhone = saveMatch[2].trim();
                   let cleanPhone = rawPhone.replace(/[^\d]/g, '');
                   if (cleanPhone.startsWith('0')) {
                     cleanPhone = '62' + cleanPhone.slice(1);
@@ -1015,12 +1036,56 @@ function initializeClient() {
                   cleanText = cleanText.replace(saveRegex, '').trim();
                 }
 
-                // Add to temporary tracking set to mark as auto-reply in dashboard logs without prepending text
-                recentAiReplies.add(cleanText);
-                setTimeout(() => recentAiReplies.delete(cleanText), 10000);
+                // Parse for [SEND_STICKER: name="..."]
+                const stickerRegex = /\[SEND_STICKER:\s*name=["']([^"']+)["']\]/i;
+                const stickerMatch = cleanText.match(stickerRegex);
+                let stickerToMessage = null;
 
-                await msg.reply(cleanText);
-                console.log(`[AI-RESPONSE] Sent Gemini auto-reply to ${senderName}`);
+                if (stickerMatch) {
+                  const stickerName = stickerMatch[1].trim().toLowerCase();
+                  const extensions = ['webp', 'png', 'jpg', 'jpeg'];
+                  let foundPath = null;
+                  for (const ext of extensions) {
+                    const p = path.join(stickersDir, `${stickerName}.${ext}`);
+                    if (fs.existsSync(p)) {
+                      foundPath = p;
+                      break;
+                    }
+                  }
+
+                  if (foundPath) {
+                    try {
+                      stickerToMessage = MessageMedia.fromFilePath(foundPath);
+                      console.log(`[+] Loaded sticker "${stickerName}" from: ${foundPath}`);
+                    } catch (mediaErr) {
+                      console.error('[-] Failed loading sticker media:', mediaErr.message);
+                    }
+                  } else {
+                    console.log(`[-] Sticker "${stickerName}" not found in stickers folder.`);
+                  }
+
+                  // Strip the tag from the text response
+                  cleanText = cleanText.replace(stickerRegex, '').trim();
+                }
+
+                // Add to temporary tracking set to mark as auto-reply in dashboard logs without prepending text
+                if (cleanText) {
+                  recentAiReplies.add(cleanText);
+                  setTimeout(() => recentAiReplies.delete(cleanText), 10000);
+                  await msg.reply(cleanText);
+                  console.log(`[AI-RESPONSE] Sent Gemini auto-reply to ${senderName}`);
+                }
+
+                if (stickerToMessage) {
+                  setTimeout(async () => {
+                    try {
+                      await client.sendMessage(msg.from, stickerToMessage, { sendMediaAsSticker: true });
+                      console.log(`[AI-RESPONSE] Sent sticker reaction to ${senderName}`);
+                    } catch (stickErr) {
+                      console.error('[-] Failed sending sticker:', stickErr.message);
+                    }
+                  }, cleanText ? 1000 : 0);
+                }
               }
             } catch (err) {
               console.error('[-] Failed generating/sending Gemini response:', err.message);
