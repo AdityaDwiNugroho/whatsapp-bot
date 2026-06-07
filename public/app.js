@@ -10,6 +10,7 @@ let totalMessageCount = 0;
 let dashboardPassword = localStorage.getItem('dashboard_password') || '';
 let selectedFile = null; // Staged file attachment
 let waContacts = []; // Cache for WhatsApp phonebook contacts
+let isAuthInitialized = false;
 
 // DOM Elements
 const passwordModal = document.getElementById('passwordModal');
@@ -573,14 +574,25 @@ function renderChatThread() {
   }
 }
 
-chatSearchInput.addEventListener('input', renderChatList);
+chatSearchInput.addEventListener('input', () => {
+  if (waContacts.length === 0 && isAuthenticated) {
+    fetchWaContacts().then(() => renderChatList());
+  }
+  renderChatList();
+});
 
 // Fetch messages history
 async function fetchMessages() {
   if (!isAuthenticated) return;
   try {
     const response = await apiRequest('/api/messages');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
     const messages = await response.json();
+    if (!Array.isArray(messages)) {
+      throw new Error('Expected array of messages');
+    }
     
     // Play sound chiming on new incoming message if count changes
     const newIncMessagesCount = messages.filter(m => !m.fromMe).length;
@@ -607,7 +619,15 @@ async function fetchReplies() {
   if (!isAuthenticated) return;
   try {
     const response = await apiRequest('/api/replies');
-    autoReplies = await response.json();
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      autoReplies = data;
+    } else {
+      autoReplies = [];
+    }
     statAutoReplies.textContent = autoReplies.length;
     renderRepliesList();
   } catch (err) {
@@ -707,7 +727,15 @@ async function fetchContacts() {
   if (!isAuthenticated) return;
   try {
     const response = await apiRequest('/api/contacts');
-    savedContacts = await response.json();
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      savedContacts = data;
+    } else {
+      savedContacts = [];
+    }
     renderContactsList();
   } catch (err) {
     console.error('Fetch contacts error:', err);
@@ -890,10 +918,19 @@ async function checkStatus() {
       
       // Load list history
       fetchMessages();
+
+      if (!isAuthInitialized) {
+        isAuthInitialized = true;
+        fetchReplies();
+        fetchSettings();
+        fetchContacts();
+        fetchWaContacts();
+      }
     } else if (qrPending) {
       botStatusDot.className = 'status-dot pulse-orange';
       statStatus.textContent = 'Authentication Pending';
       loggedInUserInfo.classList.add('hidden');
+      isAuthInitialized = false;
       
       // Force display QR Code screen
       qrPanel.classList.remove('hidden');
@@ -905,6 +942,7 @@ async function checkStatus() {
       botStatusDot.className = 'status-dot pulse-red';
       statStatus.textContent = 'Disconnected';
       loggedInUserInfo.classList.add('hidden');
+      isAuthInitialized = false;
     }
   } catch (err) {
     console.error('Check status error:', err);
@@ -972,8 +1010,15 @@ async function fetchStatuses() {
   if (!isAuthenticated) return;
   try {
     const response = await apiRequest('/api/statuses');
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
     const statuses = await response.json();
-    renderStatuses(statuses);
+    if (Array.isArray(statuses)) {
+      renderStatuses(statuses);
+    } else {
+      throw new Error('Expected array of statuses');
+    }
   } catch (err) {
     console.error('Fetch statuses error:', err);
   }
@@ -1039,9 +1084,19 @@ async function fetchWaContacts() {
   if (!isAuthenticated) return;
   try {
     const response = await apiRequest('/api/wa/contacts');
-    waContacts = await response.json();
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      waContacts = data;
+    } else {
+      console.error('Fetch WA contacts error: expected array, got', data);
+      waContacts = [];
+    }
   } catch (err) {
     console.error('Fetch WA contacts error:', err);
+    waContacts = [];
   }
 }
 
@@ -1050,11 +1105,6 @@ async function init() {
   await checkStatus();
   
   if (isAuthenticated) {
-    await fetchReplies();
-    await fetchSettings();
-    await fetchContacts();
-    await fetchWaContacts();
-    
     if (navTimelineBtn.classList.contains('active')) {
       await fetchStatuses();
     }
