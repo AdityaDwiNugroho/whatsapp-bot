@@ -71,6 +71,27 @@ class CustomRemoteAuth extends RemoteAuth {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load local .env file if it exists
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envLines = fs.readFileSync(envPath, 'utf8').split('\n');
+    for (const line of envLines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const key = trimmed.substring(0, eqIdx).trim();
+        const value = trimmed.substring(eqIdx + 1).trim().replace(/^['"]|['"]$/g, '');
+        process.env[key] = value;
+      }
+    }
+    console.log('[+] Loaded environment variables from .env file.');
+  }
+} catch (envErr) {
+  console.error('[-] Failed to read .env file:', envErr.message);
+}
+
 // Save PID for local stopping script
 try {
   fs.writeFileSync(path.join(__dirname, 'bot.pid'), process.pid.toString());
