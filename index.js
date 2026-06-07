@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { MongoStore } from 'wwebjs-mongo';
 import AdmZip from 'adm-zip';
+import os from 'os';
 
 // Custom RemoteAuth class to bypass unzipper extraction failures and prune cache safely before zipping
 class CustomRemoteAuth extends RemoteAuth {
@@ -305,11 +306,32 @@ function formatPhoneNumber(num) {
   return clean;
 }
 
+// Helper: Auto-locates Google Chrome on Windows or falls back to env variable
+function getChromeExecutablePath() {
+  if (process.env.CHROME_PATH) {
+    return process.env.CHROME_PATH;
+  }
+  if (process.platform === 'win32') {
+    const standardPaths = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      path.join(os.homedir(), 'AppData\\Local\\Google\\Chrome\\Application\\chrome.exe')
+    ];
+    for (const p of standardPaths) {
+      if (fs.existsSync(p)) {
+        console.log(`[+] Auto-detected Google Chrome at: ${p}`);
+        return p;
+      }
+    }
+  }
+  return null;
+}
+
 // Puppeteer configuration (custom User Agent to bypass bot detection and optimize memory)
 function getPuppeteerConfig() {
   return {
     headless: true,
-    executablePath: process.env.CHROME_PATH || null,
+    executablePath: getChromeExecutablePath(),
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
