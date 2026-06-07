@@ -66,6 +66,12 @@ const ruleTriggerInput = document.getElementById('ruleTriggerInput');
 const ruleResponseInput = document.getElementById('ruleResponseInput');
 const alertSound = document.getElementById('alertSound');
 
+// Gemini AI DOM Elements
+const aiEnabledCheckbox = document.getElementById('aiEnabledCheckbox');
+const aiKeyBadge = document.getElementById('aiKeyBadge');
+const aiSystemPromptInput = document.getElementById('aiSystemPromptInput');
+const saveAiSettingsBtn = document.getElementById('saveAiSettingsBtn');
+
 // --- Helper functions ---
 
 // Safe fetch wrapper that automatically appends x-password header
@@ -139,6 +145,7 @@ navAutoReplyBtn.addEventListener('click', () => {
   chatThreadView.classList.add('hidden');
   renderChatList();
   fetchReplies();
+  fetchSettings();
 });
 
 // Format initials for avatar display
@@ -574,6 +581,65 @@ window.deleteRule = async function(trigger) {
   }
 };
 
+// --- Gemini AI Settings Fetch & Save ---
+async function fetchSettings() {
+  if (!isAuthenticated) return;
+  try {
+    const response = await apiRequest('/api/settings');
+    const data = await response.json();
+    
+    aiEnabledCheckbox.checked = data.aiEnabled;
+    aiSystemPromptInput.value = data.systemPrompt;
+    
+    if (data.hasGeminiKey) {
+      aiKeyBadge.textContent = "Secret Key Active";
+      aiKeyBadge.style.background = "rgba(37, 211, 102, 0.2)";
+      aiKeyBadge.style.color = "var(--wa-green)";
+      aiKeyBadge.style.borderColor = "rgba(37, 211, 102, 0.3)";
+    } else {
+      aiKeyBadge.textContent = "Secret Key Missing";
+      aiKeyBadge.style.background = "rgba(239, 68, 110, 0.15)";
+      aiKeyBadge.style.color = "#ef4444";
+      aiKeyBadge.style.borderColor = "rgba(239, 68, 110, 0.25)";
+    }
+  } catch (err) {
+    console.error('Fetch settings error:', err);
+  }
+}
+
+async function saveSettings() {
+  try {
+    saveAiSettingsBtn.disabled = true;
+    saveAiSettingsBtn.textContent = "Saving...";
+    
+    const response = await apiRequest('/api/settings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        aiEnabled: aiEnabledCheckbox.checked,
+        systemPrompt: aiSystemPromptInput.value.trim()
+      })
+    });
+    
+    const data = await response.json();
+    if (data.success) {
+      alert('AI Assistant settings saved successfully!');
+    } else {
+      alert('Failed to save settings: ' + data.error);
+    }
+  } catch (err) {
+    console.error('Save settings error:', err);
+    alert('Failed to save settings: ' + err.message);
+  } finally {
+    saveAiSettingsBtn.disabled = false;
+    saveAiSettingsBtn.textContent = "Save AI Assistant Settings";
+  }
+}
+
+saveAiSettingsBtn.addEventListener('click', saveSettings);
+
 // Check client connectivity status
 async function checkStatus() {
   try {
@@ -657,6 +723,7 @@ async function init() {
   
   if (isAuthenticated) {
     await fetchReplies();
+    await fetchSettings();
   }
 }
 

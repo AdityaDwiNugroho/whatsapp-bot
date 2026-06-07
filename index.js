@@ -22,12 +22,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 // File paths for local persistence
 const messagesPath = path.join(__dirname, 'messages_history.json');
 const repliesPath = path.join(__dirname, 'auto_replies.json');
+const settingsPath = path.join(__dirname, 'bot_settings.json');
 
 // Memory storage
 let botStatus = 'Initializing...';
 let latestQrCode = null;
 let messagesHistory = [];
 let autoReplies = [];
+let botSettings = {
+  aiEnabled: false,
+  systemPrompt: "You are a helpful personal assistant representing the account owner. Reply in a friendly, concise, and natural tone. Do not use any emojis under any circumstances."
+};
 
 // Command Queue for PC remote control
 let pendingCommands = [];
@@ -96,9 +101,32 @@ function getDefaultReplies() {
   ];
 }
 
+// Load/Save Bot Settings
+function loadSettings() {
+  if (fs.existsSync(settingsPath)) {
+    try {
+      botSettings = { ...botSettings, ...JSON.parse(fs.readFileSync(settingsPath, 'utf8')) };
+      console.log('[+] Loaded bot configuration settings.');
+    } catch (err) {
+      console.error('[-] Error loading settings:', err.message);
+    }
+  } else {
+    saveSettings();
+  }
+}
+
+function saveSettings() {
+  try {
+    fs.writeFileSync(settingsPath, JSON.stringify(botSettings, null, 2));
+  } catch (err) {
+    console.error('[-] Error saving settings:', err.message);
+  }
+}
+
 // Initialize persistence
 loadMessages();
 loadReplies();
+loadSettings();
 
 // Basic Authorization Middleware for Cloud Deployments & PC Connector
 const checkPassword = (req, res, next) => {
@@ -150,6 +178,56 @@ function getWebVersionCacheConfig() {
     type: 'remote',
     remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
   };
+}
+
+// Call Gemini API to generate dynamic response
+async function generateGeminiResponse(userMessage, senderName) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  const payload = {
+    contents: [
+      {
+        parts: [
+          {
+            text: `Sender Name: ${senderName}\nMessage: ${userMessage}`
+          }
+        ]
+      }
+    ],
+    systemInstruction: {
+      parts: [
+        {
+          text: botSettings.systemPrompt
+        }
+      ]
+    }
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error('[-] Gemini API error:', errText);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]) {
+      return data.candidates[0].content.parts[0].text.trim();
+    }
+  } catch (err) {
+    console.error('[-] Error calling Gemini API:', err.message);
+  }
+  return null;
 }
 
 // Centralized WhatsApp Client Events Binder
@@ -214,7 +292,10 @@ function initializeClient() {
       const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
 
       // Detect if this outgoing message is an auto-reply response
-      const isAutoReply = msg.fromMe && autoReplies.some(r => r.response === msg.body);
+      const isAutoReply = msg.fromMe && (
+        autoReplies.some(r => r.response === msg.body) ||
+        (botSettings.aiEnabled && msg.body.includes('[AI]')) // flag if it was an AI response
+      );
 
       // Filter media body text
       let bodyText = msg.body || '';
@@ -261,7 +342,7 @@ function initializeClient() {
       if (!msg.fromMe && !msg.hasMedia) {
         const text = bodyText.toLowerCase().trim();
         
-        // Match keywords using Word Boundaries to avoid accidental substring matches (e.g. matching "hi" in "thinking")
+        // 1. Match static keywords using Word Boundaries to avoid substring matches
         const matchedRule = autoReplies.find(rule => {
           const trigger = rule.trigger.toLowerCase().trim();
           const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); // escape regex specials
@@ -285,30 +366,49 @@ function initializeClient() {
               console.error('[-] Failed sending auto reply:', replyErr.message);
             }
           }, 1500);
-        } else {
-          // Fallback Away Message (triggers only if rule for "away" exists in auto-reply rules database)
-          const awayRule = autoReplies.find(rule => rule.trigger.toLowerCase().trim() === 'away-message');
-          if (awayRule) {
-            const lastTriggered = awayCooldowns.get(senderNumber);
-            const now = Date.now();
-            
-            if (!lastTriggered || (now - lastTriggered > COOLDOWN_TIME)) {
-              awayCooldowns.set(senderNumber, now);
-              
-              let responseText = awayRule.response;
-              responseText = responseText.replace(/{sender}/g, senderName);
-              responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
-              responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+          return;
+        }
 
-              setTimeout(async () => {
-                try {
-                  await msg.reply(responseText);
-                  console.log(`[AWAY-MESSAGE] Sent fallback offline response to ${senderName}`);
-                } catch (err) {
-                  console.error('[-] Failed sending away message:', err.message);
-                }
-              }, 2000);
+        // 2. If no static keyword matched, fallback to Gemini AI Assistant if enabled
+        if (botSettings.aiEnabled && process.env.GEMINI_API_KEY) {
+          setTimeout(async () => {
+            try {
+              const aiText = await generateGeminiResponse(bodyText, senderName);
+              if (aiText) {
+                // Prepend [AI] tag to distinguish AI responses from manual replies
+                const responseText = `[AI] ${aiText}`;
+                await msg.reply(responseText);
+                console.log(`[AI-RESPONSE] Sent Gemini auto-reply to ${senderName}`);
+              }
+            } catch (err) {
+              console.error('[-] Failed generating/sending Gemini response:', err.message);
             }
+          }, 2000);
+          return;
+        }
+
+        // 3. Fallback Away Message (triggers only if rule for "away" exists in auto-reply rules database and AI is off)
+        const awayRule = autoReplies.find(rule => rule.trigger.toLowerCase().trim() === 'away-message');
+        if (awayRule) {
+          const lastTriggered = awayCooldowns.get(senderNumber);
+          const now = Date.now();
+          
+          if (!lastTriggered || (now - lastTriggered > COOLDOWN_TIME)) {
+            awayCooldowns.set(senderNumber, now);
+            
+            let responseText = awayRule.response;
+            responseText = responseText.replace(/{sender}/g, senderName);
+            responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+            responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+
+            setTimeout(async () => {
+              try {
+                await msg.reply(responseText);
+                console.log(`[AWAY-MESSAGE] Sent fallback offline response to ${senderName}`);
+              } catch (err) {
+                console.error('[-] Failed sending away message:', err.message);
+              }
+            }, 2000);
           }
         }
       }
@@ -509,6 +609,29 @@ app.post('/api/pc/respond', checkPassword, async (req, res) => {
     console.error('[-] Error sending PC response back to WhatsApp:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// --- REST API: Settings (secured via DASHBOARD_PASSWORD) ---
+app.get('/api/settings', checkPassword, (req, res) => {
+  res.json({
+    aiEnabled: botSettings.aiEnabled,
+    systemPrompt: botSettings.systemPrompt,
+    hasGeminiKey: process.env.GEMINI_API_KEY ? true : false
+  });
+});
+
+app.post('/api/settings', checkPassword, (req, res) => {
+  const { aiEnabled, systemPrompt } = req.body;
+  
+  if (aiEnabled !== undefined) {
+    botSettings.aiEnabled = !!aiEnabled;
+  }
+  if (systemPrompt !== undefined) {
+    botSettings.systemPrompt = systemPrompt.trim();
+  }
+  
+  saveSettings();
+  res.json({ success: true, message: 'Settings saved successfully!' });
 });
 
 // Start Express Web Server
