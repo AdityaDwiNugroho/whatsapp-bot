@@ -103,6 +103,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
             <span>Auto Replies</span>
           </button>
+          <button id="navContactsBtn" class="footer-nav-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            <span>Contacts</span>
+          </button>
         </div>
       </aside>
 
@@ -199,6 +203,16 @@
                 <span class="stat-label">Client Status</span>
               </div>
             </div>
+
+            <div class="glass-card stat-card">
+              <div class="stat-icon pc-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+              </div>
+              <div class="stat-data">
+                <span class="stat-value" id="statPcStatus">Offline</span>
+                <span class="stat-label">PC Connector</span>
+              </div>
+            </div>
           </div>
 
           <div class="two-column-layout">
@@ -292,6 +306,40 @@
                   <textarea id="ruleResponseInput" required rows="5" placeholder="e.g. Halo! Mohon tunggu sebentar ya..."></textarea>
                 </div>
                 <button type="submit" class="premium-btn">Save Auto-Reply Rule</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- SAVED CONTACTS CONFIGURATION WINDOW -->
+        <div id="contactsView" class="overview-container hidden">
+          <div class="overview-header">
+            <h2>Custom Contact Directory</h2>
+            <p>Manage custom contact names. When a contact matches, their name will be resolved to your saved value in logs and headers.</p>
+          </div>
+
+          <div class="two-column-layout replies-layout">
+            <!-- Contacts list -->
+            <div class="glass-card list-card">
+              <h3>Saved Contacts</h3>
+              <div id="contactsListContainer" class="rules-list-container">
+                <!-- Custom contacts will populate here -->
+              </div>
+            </div>
+
+            <!-- Add Contact form -->
+            <div class="glass-card form-card">
+              <h3>Add or Edit Contact</h3>
+              <form id="addContactForm" class="rule-form">
+                <div class="form-group">
+                  <label for="contactPhoneInput">Phone Number (with country code, e.g. 628...)</label>
+                  <input type="text" id="contactPhoneInput" required placeholder="e.g. 628123456789">
+                </div>
+                <div class="form-group">
+                  <label for="contactNameInput">Custom Saved Name</label>
+                  <input type="text" id="contactNameInput" required placeholder="e.g. John Doe">
+                </div>
+                <button type="submit" class="premium-btn">Save Contact</button>
               </form>
             </div>
           </div>

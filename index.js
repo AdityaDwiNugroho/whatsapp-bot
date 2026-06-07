@@ -63,6 +63,7 @@ let botSettings = {
 
 // Command Queue for PC remote control
 let pendingCommands = [];
+let pcLastSeen = null;
 // Cooldown tracker for general away message (per phone number)
 const awayCooldowns = new Map();
 const COOLDOWN_TIME = 24 * 60 * 60 * 1000; // 24 Hours in milliseconds
@@ -661,7 +662,8 @@ app.get('/api/status', (req, res) => {
     authenticated: client.info ? true : false,
     phone: client.info && client.info.wid ? client.info.wid.user : null,
     pushname: client.info ? client.info.pushname : null,
-    qrPending: latestQrCode ? true : false
+    qrPending: latestQrCode ? true : false,
+    pcOnline: pcLastSeen ? (Date.now() - pcLastSeen < 15000) : false
   });
 });
 
@@ -755,6 +757,7 @@ app.delete('/api/replies', checkPassword, (req, res) => {
 
 // PC Client polls this endpoint to fetch commands
 app.get('/api/pc/commands', checkPassword, (req, res) => {
+  pcLastSeen = Date.now();
   res.json(pendingCommands);
 });
 

@@ -53,17 +53,26 @@ const cancelAttachmentBtn = document.getElementById('cancelAttachmentBtn');
 
 const overviewView = document.getElementById('overviewView');
 const autoRepliesView = document.getElementById('autoRepliesView');
+const contactsView = document.getElementById('contactsView');
 const navDashboardBtn = document.getElementById('navDashboardBtn');
 const navAutoReplyBtn = document.getElementById('navAutoReplyBtn');
+const navContactsBtn = document.getElementById('navContactsBtn');
 
 const statTotalMessages = document.getElementById('statTotalMessages');
 const statAutoReplies = document.getElementById('statAutoReplies');
 const statStatus = document.getElementById('statStatus');
+const statPcStatus = document.getElementById('statPcStatus');
 
 const rulesListContainer = document.getElementById('rulesListContainer');
 const addRuleForm = document.getElementById('addRuleForm');
 const ruleTriggerInput = document.getElementById('ruleTriggerInput');
 const ruleResponseInput = document.getElementById('ruleResponseInput');
+
+const contactsListContainer = document.getElementById('contactsListContainer');
+const addContactForm = document.getElementById('addContactForm');
+const contactPhoneInput = document.getElementById('contactPhoneInput');
+const contactNameInput = document.getElementById('contactNameInput');
+let savedContacts = [];
 const alertSound = document.getElementById('alertSound');
 
 // Gemini AI DOM Elements
@@ -119,12 +128,14 @@ closeNewChatBtn.addEventListener('click', () => {
   newChatNumberInput.value = '';
 });
 
-// Navigation logic between overview/auto-replies
+// Navigation logic between overview/auto-replies/contacts
 navDashboardBtn.addEventListener('click', () => {
   navDashboardBtn.classList.add('active');
   navAutoReplyBtn.classList.remove('active');
+  navContactsBtn.classList.remove('active');
   overviewView.classList.remove('hidden');
   autoRepliesView.classList.add('hidden');
+  contactsView.classList.add('hidden');
   
   // Close chat thread when going back to dashboard overview
   selectedChatId = null;
@@ -136,8 +147,10 @@ navDashboardBtn.addEventListener('click', () => {
 navAutoReplyBtn.addEventListener('click', () => {
   navAutoReplyBtn.classList.add('active');
   navDashboardBtn.classList.remove('active');
+  navContactsBtn.classList.remove('active');
   autoRepliesView.classList.remove('hidden');
   overviewView.classList.add('hidden');
+  contactsView.classList.add('hidden');
   
   // Close chat thread when going to auto reply settings
   selectedChatId = null;
@@ -146,6 +159,22 @@ navAutoReplyBtn.addEventListener('click', () => {
   renderChatList();
   fetchReplies();
   fetchSettings();
+});
+
+navContactsBtn.addEventListener('click', () => {
+  navContactsBtn.classList.add('active');
+  navDashboardBtn.classList.remove('active');
+  navAutoReplyBtn.classList.remove('active');
+  contactsView.classList.remove('hidden');
+  overviewView.classList.add('hidden');
+  autoRepliesView.classList.add('hidden');
+  
+  // Close chat thread when going to contacts directory
+  selectedChatId = null;
+  resetStagedFile();
+  chatThreadView.classList.add('hidden');
+  renderChatList();
+  fetchContacts();
 });
 
 // Format initials for avatar display
@@ -257,11 +286,13 @@ closeChatBtn.addEventListener('click', () => {
   resetStagedFile();
   chatThreadView.classList.add('hidden');
   
-  // Fallback to overview or auto reply depending on active navigation tab
+  // Fallback to active view panel depending on active navigation tab
   if (navDashboardBtn.classList.contains('active')) {
     overviewView.classList.remove('hidden');
-  } else {
+  } else if (navAutoReplyBtn.classList.contains('active')) {
     autoRepliesView.classList.remove('hidden');
+  } else if (navContactsBtn.classList.contains('active')) {
+    contactsView.classList.remove('hidden');
   }
   renderChatList();
 });
@@ -581,6 +612,94 @@ window.deleteRule = async function(trigger) {
   }
 };
 
+// --- Custom Contacts Directory API integrations ---
+
+async function fetchContacts() {
+  if (!isAuthenticated) return;
+  try {
+    const response = await apiRequest('/api/contacts');
+    savedContacts = await response.json();
+    renderContactsList();
+  } catch (err) {
+    console.error('Fetch contacts error:', err);
+  }
+}
+
+function renderContactsList() {
+  if (savedContacts.length === 0) {
+    contactsListContainer.innerHTML = '<p class="empty-state-sidebar">No custom contacts saved.</p>';
+    return;
+  }
+  
+  contactsListContainer.innerHTML = savedContacts.map(contact => {
+    return `
+      <div class="rule-item">
+        <div class="rule-item-content">
+          <span class="rule-trigger">${escapeHtml(contact.name)}</span>
+          <span class="rule-response">+${escapeHtml(contact.phone)}</span>
+        </div>
+        <button class="delete-rule-btn" onclick="deleteContact('${escapeHtml(contact.phone)}')" title="Delete Contact">
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+addContactForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const phone = contactPhoneInput.value.trim();
+  const name = contactNameInput.value.trim();
+  
+  if (!phone || !name) return;
+  
+  try {
+    const res = await apiRequest('/api/contacts', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ phone, name })
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      contactPhoneInput.value = '';
+      contactNameInput.value = '';
+      fetchContacts();
+      fetchMessages(); // refresh sidebar list names
+    } else {
+      alert('Failed to save contact: ' + data.error);
+    }
+  } catch (err) {
+    console.error('Save contact error:', err);
+  }
+});
+
+window.deleteContact = async function(phone) {
+  if (!confirm(`Are you sure you want to delete this custom contact?`)) return;
+  
+  try {
+    const res = await apiRequest('/api/contacts', {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ phone })
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      fetchContacts();
+      fetchMessages(); // refresh sidebar list names
+    } else {
+      alert('Delete failed: ' + data.error);
+    }
+  } catch (err) {
+    console.error('Delete contact error:', err);
+  }
+};
+
 // --- Gemini AI Settings Fetch & Save ---
 async function fetchSettings() {
   if (!isAuthenticated) return;
@@ -653,6 +772,17 @@ async function checkStatus() {
     // Update top header status indicator
     botStatusText.textContent = botStatus;
     
+    // Update PC Status Indicator
+    if (statPcStatus) {
+      if (data.pcOnline) {
+        statPcStatus.textContent = 'Online';
+        statPcStatus.style.color = 'var(--wa-green)';
+      } else {
+        statPcStatus.textContent = 'Offline';
+        statPcStatus.style.color = 'var(--text-muted)';
+      }
+    }
+
     if (isAuthenticated) {
       botStatusDot.className = 'status-dot pulse-green';
       statStatus.textContent = 'Online';
@@ -724,6 +854,7 @@ async function init() {
   if (isAuthenticated) {
     await fetchReplies();
     await fetchSettings();
+    await fetchContacts();
   }
 }
 
