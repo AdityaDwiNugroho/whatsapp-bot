@@ -1,0 +1,22 @@
+[
+  {
+    "trigger": "ping",
+    "response": "pong"
+  },
+  {
+    "trigger": "halo",
+    "response": "Halo! Saya adalah asisten bot WhatsApp yang sedang aktif. Silakan tinggalkan pesan Anda!"
+  },
+  {
+    "trigger": "hi",
+    "response": "Halo! Silakan tinggalkan pesan Anda. Saya akan segera membalasnya."
+  },
+  {
+    "trigger": "info",
+    "response": "Bot WhatsApp ini sedang aktif 24/7 di cloud!"
+  },
+  {
+    "trigger": "help",
+    "response": "Berikut kata kunci yang didukung:\n- ping: Tes koneksi bot\n- info: Info status bot\n- help: Menampilkan menu bantuan"
+  }
+]

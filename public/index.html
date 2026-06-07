@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp Bot Dashboard</title>
+  <link rel="icon" href="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg">
+  <!-- Modern Premium Typography -->
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ambient background glow elements -->
+  <div class="glow-bg glow-green"></div>
+  <div class="glow-bg glow-purple"></div>
+
+  <!-- Password Authentication Modal Overlay -->
+  <div id="passwordModal" class="modal-overlay hidden">
+    <div class="glass-card modal-content password-card">
+      <div class="logo-area">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WA Logo" class="lock-logo">
+      </div>
+      <h2>Secure Access Required</h2>
+      <p>This dashboard is secured. Please enter the Dashboard Password to authorize.</p>
+      <div class="input-group">
+        <input type="password" id="dashboardPasswordInput" placeholder="Enter password...">
+      </div>
+      <button id="submitPasswordBtn" class="premium-btn">Unlock Dashboard</button>
+      <p id="passwordError" class="error-text hidden">Incorrect password. Please try again.</p>
+    </div>
+  </div>
+
+  <!-- Start New Chat Modal -->
+  <div id="newChatModal" class="modal-overlay hidden">
+    <div class="glass-card modal-content">
+      <div class="modal-header">
+        <h3>Start New Conversation</h3>
+        <button id="closeNewChatBtn" class="close-btn">&times;</button>
+      </div>
+      <p>Enter the phone number with country code (e.g. 62812345678 or +62...):</p>
+      <div class="input-group">
+        <input type="text" id="newChatNumberInput" placeholder="e.g. 628123456789">
+      </div>
+      <button id="startChatBtn" class="premium-btn">Start Chat</button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <!-- Main Header -->
+    <header class="glass-header">
+      <div class="header-brand">
+        <img src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" alt="WhatsApp Bot Logo" class="app-logo">
+        <div class="brand-text">
+          <h1>WhatsApp Bot Control</h1>
+          <span class="sub-brand">24/7 Cloud Assistant</span>
+        </div>
+      </div>
+
+      <div class="header-status-panel">
+        <div class="status-badge">
+          <span id="botStatusDot" class="status-dot pulse-orange"></span>
+          <span id="botStatusText">Initializing Client...</span>
+        </div>
+        <div id="loggedInUserInfo" class="user-info hidden">
+          <span class="user-tag" id="userPushname">Me</span>
+          <span class="phone-tag" id="userPhone">0</span>
+        </div>
+        <button id="logoutBtn" class="action-icon-btn hidden" title="Change Account / Log out">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Split view layout -->
+    <div class="workspace">
+      
+      <!-- LEFT SIDEBAR -->
+      <aside class="glass-sidebar">
+        <!-- Search and Actions -->
+        <div class="sidebar-header">
+          <div class="search-box">
+            <svg class="search-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input type="text" id="chatSearchInput" placeholder="Search contacts...">
+          </div>
+          <button id="openNewChatBtn" class="new-chat-btn" title="New Chat">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <span>New Chat</span>
+          </button>
+        </div>
+
+        <!-- Chats list -->
+        <div class="chats-scroller" id="chatsListContainer">
+          <div class="empty-state-sidebar">No active chats</div>
+        </div>
+
+        <!-- Sidebar footer controls -->
+        <div class="sidebar-footer">
+          <button id="navDashboardBtn" class="footer-nav-btn active">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+            <span>Overview</span>
+          </button>
+          <button id="navAutoReplyBtn" class="footer-nav-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+            <span>Auto Replies</span>
+          </button>
+        </div>
+      </aside>
+
+      <!-- MAIN CONTENT WINDOW -->
+      <main class="main-window">
+        
+        <!-- QR SCAN OVERLAY (Shown when bot needs setup) -->
+        <div id="qrPanel" class="qr-container hidden">
+          <div class="glass-card qr-card">
+            <h2>Link WhatsApp Account</h2>
+            <p>Open WhatsApp on your phone, go to <b>Linked Devices</b>, and scan this QR code to start the cloud automation.</p>
+            <div class="qr-box">
+              <img id="qrCodeImg" src="" alt="WhatsApp QR Code Loader" class="qr-image">
+              <div id="qrLoadingSpinner" class="spinner"></div>
+            </div>
+            <p class="qr-status-caption"><i>The QR code will refresh automatically when ready.</i></p>
+          </div>
+        </div>
+
+        <!-- CHAT VIEW THREAD -->
+        <div id="chatThreadView" class="chat-thread-container hidden">
+          <div class="chat-thread-header">
+            <div class="avatar" id="activeChatAvatar">WA</div>
+            <div class="chat-info">
+              <h2 id="activeChatName">Contact Name</h2>
+              <span id="activeChatNumber" class="phone-label">@c.us</span>
+            </div>
+            <div class="header-thread-actions">
+              <button id="closeChatBtn" class="action-icon-btn" title="Back to Overview">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="messages-area" id="messagesScroller">
+            <!-- Messages bubbles will populate here -->
+          </div>
+
+          <div class="chat-input-bar">
+            <input type="text" id="messageTextInput" placeholder="Type a message...">
+            <button id="sendMessageBtn" class="send-btn">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- OVERVIEW / STATS WINDOW -->
+        <div id="overviewView" class="overview-container">
+          <div class="overview-header">
+            <h2>System Overview</h2>
+            <p>Real-time bot performance and operations analytics.</p>
+          </div>
+
+          <div class="stats-grid">
+            <div class="glass-card stat-card">
+              <div class="stat-icon message-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+              </div>
+              <div class="stat-data">
+                <span class="stat-value" id="statTotalMessages">0</span>
+                <span class="stat-label">Total Logs Cached</span>
+              </div>
+            </div>
+
+            <div class="glass-card stat-card">
+              <div class="stat-icon reply-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+              </div>
+              <div class="stat-data">
+                <span class="stat-value" id="statAutoReplies">0</span>
+                <span class="stat-label">Active Auto-Replies</span>
+              </div>
+            </div>
+
+            <div class="glass-card stat-card">
+              <div class="stat-icon active-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+              </div>
+              <div class="stat-data">
+                <span class="stat-value" id="statStatus">Online</span>
+                <span class="stat-label">Client Status</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="two-column-layout">
+            <!-- Instructions and Host Guide -->
+            <div class="glass-card content-card">
+              <h3>24/7 Cloud Hosting Guide</h3>
+              <p>Since this bot is built using Node.js and containerized with Docker, you can run it 24/7 in the cloud so you don't need your laptop to be open.</p>
+              
+              <ul class="hosting-steps">
+                <li>
+                  <div class="step-num">1</div>
+                  <div class="step-text"><b>Hugging Face Spaces (Free):</b> Create a new Space, select the <b>Docker</b> SDK, set it to Private (for privacy), and push this project directory. It builds and runs instantly.</div>
+                </li>
+                <li>
+                  <div class="step-num">2</div>
+                  <div class="step-text"><b>Scan & Link once:</b> Scan the QR code from the Space's web dashboard. The login session is saved in the persistent folder, so it stays connected.</div>
+                </li>
+                <li>
+                  <div class="step-num">3</div>
+                  <div class="step-text"><b>Lock Dashboard:</b> Add the `DASHBOARD_PASSWORD` environment variable in your Space settings to prevent unauthorized access to your dashboard.</div>
+                </li>
+              </ul>
+            </div>
+
+            <!-- Quick Tips -->
+            <div class="glass-card content-card">
+              <h3>Quick Tips</h3>
+              <div class="tip-box">
+                <span class="tip-bullet">INFO</span>
+                <p>Click on <b>"New Chat"</b> to initiate a conversation with any phone number directly, even if they aren't in your history.</p>
+              </div>
+              <div class="tip-box">
+                <span class="tip-bullet">AUTO</span>
+                <p>Head over to the <b>Auto Replies</b> tab in the sidebar to configure keywords. The bot will automatically reply to incoming messages when it sees a match.</p>
+              </div>
+              <div class="tip-box">
+                <span class="tip-bullet">SOUND</span>
+                <p>Leave this browser tab open on your phone or desktop to hear audio alert chiming whenever someone sends you a new message.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- AUTO REPLY CONFIGURATION WINDOW -->
+        <div id="autoRepliesView" class="overview-container hidden">
+          <div class="overview-header">
+            <h2>Auto-Reply Rule Manager</h2>
+            <p>Add, edit, or delete keywords that trigger automated replies from the bot.</p>
+          </div>
+
+          <div class="two-column-layout replies-layout">
+            <!-- Rules list -->
+            <div class="glass-card list-card">
+              <h3>Active Rules</h3>
+              <div id="rulesListContainer" class="rules-list-container">
+                <!-- Auto replies will populate here -->
+              </div>
+            </div>
+
+            <!-- Add Rule form -->
+            <div class="glass-card form-card">
+              <h3>Add or Edit Rule</h3>
+              <form id="addRuleForm" class="rule-form">
+                <div class="form-group">
+                  <label for="ruleTriggerInput">Trigger Keyword (exact case-insensitive match)</label>
+                  <input type="text" id="ruleTriggerInput" required placeholder="e.g. halo">
+                </div>
+                <div class="form-group">
+                  <label for="ruleResponseInput">Response Message</label>
+                  <textarea id="ruleResponseInput" required rows="5" placeholder="e.g. Halo! Mohon tunggu sebentar ya..."></textarea>
+                </div>
+                <button type="submit" class="premium-btn">Save Auto-Reply Rule</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+    </div>
+  </div>
+
+  <!-- Audio notify element -->
+  <audio id="alertSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-120.wav" preload="auto"></audio>
+
+  <script src="app.js"></script>
+</body>
+</html>
