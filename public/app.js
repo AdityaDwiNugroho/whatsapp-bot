@@ -9,6 +9,7 @@ let autoReplies = [];
 let totalMessageCount = 0;
 let dashboardPassword = localStorage.getItem('dashboard_password') || '';
 let selectedFile = null; // Staged file attachment
+let waContacts = []; // Cache for WhatsApp phonebook contacts
 
 // DOM Elements
 const passwordModal = document.getElementById('passwordModal');
@@ -415,25 +416,55 @@ function processMessages(messages) {
 function renderChatList() {
   const query = chatSearchInput.value.toLowerCase().trim();
   
-  const filtered = groupedChats.filter(chat => {
+  const filteredChats = groupedChats.filter(chat => {
     if (!query) return true;
     return chat.chatName.toLowerCase().includes(query) || 
            chat.chatId.includes(query) || 
            chat.messages.some(m => m.message.toLowerCase().includes(query));
   });
   
-  if (filtered.length === 0) {
+  let contactsHtml = '';
+  if (query) {
+    const activeChatIds = new Set(groupedChats.map(c => c.chatId));
+    const filteredContacts = waContacts.filter(c => {
+      if (activeChatIds.has(c.id)) return false;
+      return c.name.toLowerCase().includes(query) || c.phone.includes(query);
+    });
+    
+    if (filteredContacts.length > 0) {
+      contactsHtml = `
+        <div class="sidebar-section-title">WhatsApp Contacts</div>
+        ${filteredContacts.slice(0, 15).map(c => {
+          const initials = getInitials(c.name);
+          const bgGradient = getAvatarGradient(c.name);
+          return `
+            <div class="chat-item" onclick="selectContact('${c.id}', '${escapeHtml(c.name).replace(/'/g, "\\'")}')">
+              <div class="chat-item-avatar" style="background: ${bgGradient}">${initials}</div>
+              <div class="chat-item-details">
+                <div class="chat-item-row">
+                  <span class="chat-item-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
+                </div>
+                <div class="chat-item-preview">
+                  +${c.phone} (Address Book)
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      `;
+    }
+  }
+  
+  if (filteredChats.length === 0 && !contactsHtml) {
     chatsListContainer.innerHTML = '<div class="empty-state-sidebar">No active chats</div>';
     return;
   }
   
-  chatsListContainer.innerHTML = filtered.map(chat => {
+  let chatsHtml = filteredChats.map(chat => {
     const initials = getInitials(chat.chatName);
     const bgGradient = getAvatarGradient(chat.chatName);
     const activeClass = selectedChatId === chat.chatId ? 'active' : '';
     const displayTime = formatTime(chat.latestTimestamp);
-    
-    // Prefix if sent by me
     const previewPrefix = chat.latestFromMe ? 'Anda: ' : '';
     
     return `
@@ -451,6 +482,8 @@ function renderChatList() {
       </div>
     `;
   }).join('');
+  
+  chatsListContainer.innerHTML = chatsHtml + contactsHtml;
 }
 
 window.selectChat = function(chatId) {
@@ -471,6 +504,26 @@ window.selectChat = function(chatId) {
     activeChatAvatar.textContent = getInitials(chatObj.chatName);
     activeChatAvatar.style.background = getAvatarGradient(chatObj.chatName);
   }
+  
+  renderChatThread();
+  renderChatList();
+};
+
+window.selectContact = function(contactId, contactName) {
+  selectedChatId = contactId;
+  resetStagedFile();
+  
+  // Swap UI panes
+  chatThreadView.classList.remove('hidden');
+  overviewView.classList.add('hidden');
+  timelineView.classList.add('hidden');
+  autoRepliesView.classList.add('hidden');
+  contactsView.classList.add('hidden');
+  
+  activeChatName.textContent = contactName;
+  activeChatNumber.textContent = contactId;
+  activeChatAvatar.textContent = getInitials(contactName);
+  activeChatAvatar.style.background = getAvatarGradient(contactName);
   
   renderChatThread();
   renderChatList();
@@ -981,6 +1034,17 @@ function renderStatuses(statuses) {
   }).join('');
 }
 
+// Fetch all WhatsApp address book contacts
+async function fetchWaContacts() {
+  if (!isAuthenticated) return;
+  try {
+    const response = await apiRequest('/api/wa/contacts');
+    waContacts = await response.json();
+  } catch (err) {
+    console.error('Fetch WA contacts error:', err);
+  }
+}
+
 // Initialize Loop
 async function init() {
   await checkStatus();
@@ -989,6 +1053,7 @@ async function init() {
     await fetchReplies();
     await fetchSettings();
     await fetchContacts();
+    await fetchWaContacts();
     
     if (navTimelineBtn.classList.contains('active')) {
       await fetchStatuses();

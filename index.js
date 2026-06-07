@@ -1298,6 +1298,27 @@ app.get('/api/contacts', checkPassword, (req, res) => {
   res.json(savedContacts);
 });
 
+// REST API: Get all WhatsApp address book contacts (requires auth if DASHBOARD_PASSWORD set)
+app.get('/api/wa/contacts', checkPassword, async (req, res) => {
+  try {
+    if (!client) {
+      return res.status(503).json({ error: 'WhatsApp client not initialized' });
+    }
+    const contacts = await client.getContacts();
+    const filtered = contacts
+      .filter(c => !c.isGroup && c.id._serialized !== 'status@broadcast')
+      .map(c => ({
+        id: c.id._serialized,
+        name: c.name || c.pushname || c.number,
+        phone: c.number
+      }));
+    res.json(filtered);
+  } catch (err) {
+    console.error('[-] Error fetching WhatsApp contacts:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/contacts', checkPassword, async (req, res) => {
   const { name, phone } = req.body;
   if (!name || !phone) {
