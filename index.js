@@ -125,7 +125,7 @@ function formatPhoneNumber(num) {
   return clean;
 }
 
-// Puppeteer configuration (container ready)
+// Puppeteer configuration (custom User Agent to bypass bot detection)
 function getPuppeteerConfig() {
   return {
     headless: true,
@@ -138,8 +138,17 @@ function getPuppeteerConfig() {
       '--no-first-run',
       '--no-zygote',
       '--single-process',
-      '--disable-gpu'
+      '--disable-gpu',
+      '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     ]
+  };
+}
+
+// Stable Web Version Cache Configuration to avoid scanning loops
+function getWebVersionCacheConfig() {
+  return {
+    type: 'remote',
+    remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html'
   };
 }
 
@@ -329,7 +338,9 @@ if (mongoUri) {
           store: store,
           backupSyncIntervalMs: 60000 // Sync backup session to database every minute
         }),
-        puppeteer: getPuppeteerConfig()
+        puppeteer: getPuppeteerConfig(),
+        webVersionCache: getWebVersionCacheConfig(),
+        authTimeoutMs: 60000 // Increase connection timeout for slower servers
       });
       initializeClient();
     })
@@ -347,7 +358,9 @@ function setupLocalClient() {
     authStrategy: new LocalAuth({
       dataPath: './.wwebjs_auth'
     }),
-    puppeteer: getPuppeteerConfig()
+    puppeteer: getPuppeteerConfig(),
+    webVersionCache: getWebVersionCacheConfig(),
+    authTimeoutMs: 60000
   });
   initializeClient();
 }
@@ -373,15 +386,15 @@ app.get('/api/status', (req, res) => {
 });
 
 // REST API: Get QR Code base64 image
-app.get('/api/qr', async (req, res) => {
+app.get('/api/qr', async (qrReq, qrRes) => {
   if (!latestQrCode) {
-    return res.status(404).json({ error: 'No QR code pending. Bot is already logged in or initializing.' });
+    return qrRes.status(404).json({ error: 'No QR code pending. Bot is already logged in or initializing.' });
   }
   try {
     const qrImage = await QRCode.toDataURL(latestQrCode);
-    res.json({ qr: qrImage });
+    qrRes.json({ qr: qrImage });
   } catch (err) {
-    res.status(500).json({ error: 'Error generating QR code image' });
+    qrRes.status(500).json({ error: 'Error generating QR code image' });
   }
 });
 
