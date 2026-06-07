@@ -8,6 +8,32 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { MongoStore } from 'wwebjs-mongo';
+import AdmZip from 'adm-zip';
+
+// Custom RemoteAuth class to bypass unzipper extraction failures
+class CustomRemoteAuth extends RemoteAuth {
+  async unCompressSession(compressedSessionPath) {
+    await new Promise((resolve, reject) => {
+      try {
+        const zip = new AdmZip(compressedSessionPath);
+        zip.extractAllToAsync(this.userDataDir, true, false, (err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve();
+          }
+        });
+      } catch (err) {
+        reject(err);
+      }
+    });
+    try {
+      await fs.promises.unlink(compressedSessionPath);
+    } catch (err) {
+      console.error('[-] Error removing temporary session zip file:', err.message);
+    }
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -260,6 +286,19 @@ function initializeClient() {
     console.log('\n=========================================');
     console.log('   WHATSAPP AUTOMATION BOT IS READY!     ');
     console.log('=========================================');
+
+    // Trigger an immediate remote session backup in 10 seconds to ensure the session is saved to MongoDB
+    if (client.authStrategy instanceof RemoteAuth) {
+      console.log('[+] Triggering immediate session backup to MongoDB in 10 seconds...');
+      setTimeout(async () => {
+        try {
+          await client.authStrategy.storeRemoteSession({ emit: true });
+          console.log('[+] Session successfully saved to MongoDB database (immediate trigger).');
+        } catch (err) {
+          console.error('[-] Error during immediate session backup:', err.message);
+        }
+      }, 10000);
+    }
   });
 
   // Event: Remote Session Saved (MongoDB Specific)
@@ -434,7 +473,7 @@ if (mongoUri) {
       console.log('[+] Connected to MongoDB successfully.');
       const store = new MongoStore({ mongoose: mongoose });
       client = new Client({
-        authStrategy: new RemoteAuth({
+        authStrategy: new CustomRemoteAuth({
           store: store,
           backupSyncIntervalMs: 60000 // Sync backup session to database every minute
         }),
