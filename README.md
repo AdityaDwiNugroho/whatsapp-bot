@@ -24,6 +24,7 @@ This is a containerized WhatsApp automation assistant and interactive web client
 - **Keyword Auto-Replies:** Manage custom keyword match triggers and auto-responses dynamically.
 - **Lightweight Security:** Set the DASHBOARD_PASSWORD environment variable to block unauthorized dashboard access.
 - **Local Audio Alerts:** Play sound notifications when new messages arrive.
+- **PC Remote Control (Secure Connector):** Execute terminal commands on your local PC or take a screenshot directly by texting your bot.
 
 ---
 
@@ -61,6 +62,7 @@ Hugging Face Spaces allows you to deploy Docker containers for free.
    - index.js
    - Dockerfile
    - package.json
+   - pc-connector.py
    - public/index.html
    - public/style.css
    - public/app.js
@@ -95,3 +97,30 @@ If you host this app on a public URL, set the DASHBOARD_PASSWORD environment var
 - **In Local Dev:** Run DASHBOARD_PASSWORD=your_password npm start.
 
 When this variable is set, the dashboard will prompt visitors for the password. The password is saved locally in the browser's localStorage for future requests.
+
+---
+
+## PC Remote Control Connector
+
+You can control your local laptop remotely using WhatsApp by running the python connector script.
+
+### 1. Configure the Script
+Open `pc-connector.py` on your laptop and update:
+- `HF_SPACE_URL`: Your Hugging Face Space URL (e.g. `https://itsyurtzy-whatsapp-bot.hf.space`).
+- `DASHBOARD_PASSWORD`: The secret password you set in your Hugging Face space secrets.
+
+### 2. Run the Script
+Make sure Python is installed on your laptop, then run:
+```bash
+python pc-connector.py
+```
+
+### 3. Usage & Commands
+From your own phone, open your WhatsApp chat with your bot (or text yourself if using your own number) and type:
+- `/pc screenshot` - Takes a screenshot of your laptop screen and sends it back to you as an image.
+- `/pc tasklist` - Lists running processes on your laptop.
+- `/pc <any command>` - Executes the command in Command Prompt (cmd.exe) on your laptop and returns the console output.
+
+### 4. Security Safeguards
+- **Owner Verification:** The bot strictly checks the sender's WhatsApp JID before forwarding commands. Only you (the owner) can execute `/pc` commands. If anyone else sends a command to your bot, it is ignored.
+- **Secret Encryption:** The connection between the script and the Space is encrypted and protected by the `DASHBOARD_PASSWORD`.

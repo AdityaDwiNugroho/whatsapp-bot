@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 7860;
 
 // Setup Middleware
-app.use(express.json({ limit: '50mb' })); // Increase body size limit for file uploads
+app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // File paths for local persistence
@@ -26,6 +26,12 @@ let botStatus = 'Initializing...';
 let latestQrCode = null;
 let messagesHistory = [];
 let autoReplies = [];
+
+// Command Queue for PC remote control
+let pendingCommands = [];
+// Cooldown tracker for general away message (per phone number)
+const awayCooldowns = new Map();
+const COOLDOWN_TIME = 24 * 60 * 60 * 1000; // 24 Hours in milliseconds
 
 // Load historical messages from disk
 function loadMessages() {
@@ -92,7 +98,7 @@ function getDefaultReplies() {
 loadMessages();
 loadReplies();
 
-// Basic Authorization Middleware for Cloud Deployments
+// Basic Authorization Middleware for Cloud Deployments & PC Connector
 const checkPassword = (req, res, next) => {
   const passwordEnv = process.env.DASHBOARD_PASSWORD;
   if (!passwordEnv) {
@@ -102,7 +108,7 @@ const checkPassword = (req, res, next) => {
   if (clientPass === passwordEnv) {
     return next();
   }
-  return res.status(401).json({ error: 'Unauthorized. Please check your Dashboard Password.' });
+  return res.status(401).json({ error: 'Unauthorized. Please check your Password.' });
 };
 
 // Initialize WhatsApp Client
@@ -174,13 +180,19 @@ client.on('message_create', async (msg) => {
     const chat = await msg.getChat();
     if (chat.isGroup) return; // Skip group chats
 
-    // Extract sender name
+    // Extract sender details
     let senderName = '';
+    const ownerNumber = client.info && client.info.wid ? client.info.wid.user : '';
+    const senderNumber = msg.from.split('@')[0];
+    
+    // Strict Owner Verification check
+    const isOwner = msg.fromMe || (senderNumber === ownerNumber);
+
     if (msg.fromMe) {
       senderName = 'Me';
     } else {
       const contact = await msg.getContact();
-      senderName = contact.name || contact.pushname || msg.from.split('@')[0];
+      senderName = contact.name || contact.pushname || senderNumber;
     }
 
     const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
@@ -213,21 +225,75 @@ client.on('message_create', async (msg) => {
       console.log(`[MSG] ${msg.fromMe ? 'Out' : 'In'} - ${senderName}: "${bodyText}"`);
     }
 
-    // Auto-reply logic (only for incoming messages, not from self)
+    // --- Strict Administrative PC Commands ---
+    // Only process /pc command if it strictly originates from the owner's WhatsApp number
+    if (isOwner && bodyText.startsWith('/pc ')) {
+      const commandText = bodyText.slice(4).trim();
+      const commandId = Math.random().toString(36).substring(2, 9);
+      
+      pendingCommands.push({
+        id: commandId,
+        command: commandText,
+        chatId: msg.fromMe ? msg.to : msg.from // Send response back to the active thread
+      });
+      
+      await msg.reply(`Command received. Forwarding to PC (ID: ${commandId})...`);
+      return; // Stop processing further auto-replies
+    }
+
+    // Auto-reply logic (only for incoming messages, not from self, and not media)
     if (!msg.fromMe && !msg.hasMedia) {
       const text = bodyText.toLowerCase().trim();
-      const matchedRule = autoReplies.find(rule => text === rule.trigger.toLowerCase().trim());
+      
+      // Match keywords using Word Boundaries to avoid accidental substring matches (e.g. matching "hi" in "thinking")
+      const matchedRule = autoReplies.find(rule => {
+        const trigger = rule.trigger.toLowerCase().trim();
+        const escapedTrigger = trigger.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'); // escape regex specials
+        const boundaryRegex = new RegExp(`\\b${escapedTrigger}\\b`, 'i');
+        return boundaryRegex.test(text);
+      });
       
       if (matchedRule) {
+        // Replace placeholders dynamically
+        let responseText = matchedRule.response;
+        responseText = responseText.replace(/{sender}/g, senderName);
+        responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+        responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+
         // Delay reply slightly to simulate human response times
         setTimeout(async () => {
           try {
-            await msg.reply(matchedRule.response);
+            await msg.reply(responseText);
             console.log(`[AUTO-REPLY] Sent response for keyword "${matchedRule.trigger}" to ${senderName}`);
           } catch (replyErr) {
             console.error('[-] Failed sending auto reply:', replyErr.message);
           }
         }, 1500);
+      } else {
+        // Fallback Away Message (triggers only if rule for "away" exists in auto-reply rules database)
+        const awayRule = autoReplies.find(rule => rule.trigger.toLowerCase().trim() === 'away-message');
+        if (awayRule) {
+          const lastTriggered = awayCooldowns.get(senderNumber);
+          const now = Date.now();
+          
+          if (!lastTriggered || (now - lastTriggered > COOLDOWN_TIME)) {
+            awayCooldowns.set(senderNumber, now);
+            
+            let responseText = awayRule.response;
+            responseText = responseText.replace(/{sender}/g, senderName);
+            responseText = responseText.replace(/{time}/g, new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+            responseText = responseText.replace(/{date}/g, new Date().toLocaleDateString('id-ID'));
+
+            setTimeout(async () => {
+              try {
+                await msg.reply(responseText);
+                console.log(`[AWAY-MESSAGE] Sent fallback offline response to ${senderName}`);
+              } catch (err) {
+                console.error('[-] Failed sending away message:', err.message);
+              }
+            }, 2000);
+          }
+        }
       }
     }
   } catch (err) {
@@ -330,6 +396,46 @@ app.delete('/api/replies', checkPassword, (req, res) => {
   autoReplies = autoReplies.filter(r => r.trigger.toLowerCase() !== trigger.toLowerCase());
   saveReplies();
   res.json({ success: true, message: 'Auto-reply rule deleted!' });
+});
+
+// --- REST API: PC Remote Control Queue (secured via DASHBOARD_PASSWORD) ---
+
+// PC Client polls this endpoint to fetch commands
+app.get('/api/pc/commands', checkPassword, (req, res) => {
+  res.json(pendingCommands);
+});
+
+// PC Client posts execution output back here
+app.post('/api/pc/respond', checkPassword, async (req, res) => {
+  const { id, response, fileData, filename } = req.body;
+  
+  const cmdIndex = pendingCommands.findIndex(c => c.id === id);
+  if (cmdIndex === -1) {
+    return res.status(404).json({ error: 'Command not found or already processed' });
+  }
+  
+  const cmd = pendingCommands[cmdIndex];
+  pendingCommands.splice(cmdIndex, 1); // remove command from queue
+
+  try {
+    if (fileData && filename) {
+      const base64Parts = fileData.split(';base64,');
+      const mimetype = base64Parts[0].split(':')[1];
+      const rawBase64 = base64Parts[1];
+      
+      const media = new MessageMedia(mimetype, rawBase64, filename);
+      await client.sendMessage(cmd.chatId, media, { caption: response || undefined });
+    } else if (response) {
+      await client.sendMessage(cmd.chatId, response);
+    } else {
+      await client.sendMessage(cmd.chatId, '[System] PC command executed with empty response.');
+    }
+    
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[-] Error sending PC response back to WhatsApp:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Start Express Web Server
