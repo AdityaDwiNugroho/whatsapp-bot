@@ -207,25 +207,58 @@ function getWebVersionCacheConfig() {
 }
 
 // Call Gemini API to generate dynamic response
-async function generateGeminiResponse(userMessage, senderName) {
+// Call Gemini API to generate dynamic response with chat history context
+async function generateGeminiResponse(chatId, senderName) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
+  // Filter messages history for this specific conversation thread
+  const rawHistory = messagesHistory.filter(m => m.chatId === chatId);
+  
+  // Format history to Gemini format (user = contact, model = bot)
+  const contents = [];
+  rawHistory.slice(-10).forEach(m => {
+    const role = m.fromMe ? 'model' : 'user';
+    let text = m.message;
+    
+    // Strip the [AI] tag from previous assistant responses to give clean text context
+    if (m.fromMe && text.startsWith('[AI] ')) {
+      text = text.slice(5);
+    }
+    
+    contents.push({
+      role: role,
+      parts: [{ text: text }]
+    });
+  });
+
+  // Consolidate consecutive turns with the same role to strictly alternate user/model turns
+  const alternatingContents = [];
+  contents.forEach(item => {
+    if (alternatingContents.length > 0 && alternatingContents[alternatingContents.length - 1].role === item.role) {
+      alternatingContents[alternatingContents.length - 1].parts[0].text += '\n' + item.parts[0].text;
+    } else {
+      alternatingContents.push(item);
+    }
+  });
+
+  // If the conversation history is empty (should not happen since incoming message is already recorded),
+  // fallback to a single-turn payload.
+  if (alternatingContents.length === 0) {
+    return null;
+  }
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+  
+  // Inject context helper in system instruction
+  const systemInstructionText = `${botSettings.systemPrompt}\n\nAdditional Context:\n- Current Date/Time: ${new Date().toLocaleString('id-ID')}\n- Active Chat Contact Name: ${senderName}`;
+
   const payload = {
-    contents: [
-      {
-        parts: [
-          {
-            text: `Sender Name: ${senderName}\nMessage: ${userMessage}`
-          }
-        ]
-      }
-    ],
+    contents: alternatingContents,
     systemInstruction: {
       parts: [
         {
-          text: botSettings.systemPrompt
+          text: systemInstructionText
         }
       ]
     }
@@ -412,7 +445,7 @@ function initializeClient() {
         if (botSettings.aiEnabled && process.env.GEMINI_API_KEY) {
           setTimeout(async () => {
             try {
-              const aiText = await generateGeminiResponse(bodyText, senderName);
+              const aiText = await generateGeminiResponse(messageObj.chatId, senderName);
               if (aiText) {
                 // Prepend [AI] tag to distinguish AI responses from manual replies
                 const responseText = `[AI] ${aiText}`;
