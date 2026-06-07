@@ -1,6 +1,6 @@
 ---
 title: Cloud Whatsapp Bot
-emoji: robot
+emoji: 🤖
 colorFrom: green
 colorTo: blue
 sdk: docker
