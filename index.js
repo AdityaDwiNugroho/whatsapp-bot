@@ -662,7 +662,7 @@ async function generateGeminiResponse(chatId, senderName) {
   const stickerNames = getStickerNames();
   let stickerContext = "";
   if (stickerNames.length > 0) {
-    stickerContext = `\n\nYou also have the capability to reply with a sticker as a reaction. The available stickers you can send are: ${stickerNames.map(s => `'${s}'`).join(', ')}. If you want to send a sticker, you MUST append the following tag to your response: [SEND_STICKER: name="sticker_name"] (replace 'sticker_name' with one of the available stickers). Do not output this tag unless you want to send a sticker.`;
+    stickerContext = `\n\nYou also have the capability to reply with a sticker as a reaction. The available stickers you can send are: ${stickerNames.map(s => `'${s}'`).join(', ')}. If you want to send a sticker, you MUST append the following tag to your response: [SEND_STICKER: name="sticker_name"] (replace 'sticker_name' with one of the available stickers). Do not output this tag unless you want to send a sticker. CRITICAL RULES: 1. Only send stickers in casual conversations with friends. 2. NEVER send stickers to lecturers, professors, or in formal chats. 3. Use stickers sparingly (at most 10-20% of the time when a reaction fits perfectly). DO NOT spam stickers or send them in consecutive messages.`;
   }
 
   // Inject context helper in system instruction
