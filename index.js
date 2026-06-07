@@ -139,7 +139,8 @@ let messagesHistory = [];
 let autoReplies = [];
 let botSettings = {
   aiEnabled: false,
-  systemPrompt: "You are a helpful personal assistant representing the account owner. Reply in a friendly, concise, and natural tone. Do not use any emojis under any circumstances."
+  systemPrompt: "You are a helpful personal assistant representing the account owner. Reply in a friendly, concise, and natural tone. Do not use any emojis under any circumstances.",
+  ignoredContacts: ["Joy"]
 };
 
 // Command Queue for PC remote control
@@ -503,12 +504,75 @@ function initializeClient() {
   });
 
   // Event: Ready (connected to WhatsApp Web)
-  client.on('ready', () => {
+  client.on('ready', async () => {
     botStatus = 'Connected & Running!';
     latestQrCode = null;
     console.log('\n=========================================');
     console.log('   WHATSAPP AUTOMATION BOT IS READY!     ');
     console.log('=========================================');
+
+    // Load active chats on startup to pre-populate the dashboard sidebar
+    try {
+      console.log('[+] Fetching active chats from WhatsApp to pre-populate sidebar...');
+      const chats = await client.getChats();
+      let populatedCount = 0;
+      for (const chat of chats) {
+        if (chat.isGroup) continue; // skip group chats
+        
+        const chatId = chat.id._serialized;
+        const hasMessages = messagesHistory.some(m => m.chatId === chatId);
+        if (!hasMessages) {
+          const msgs = await chat.fetchMessages({ limit: 1 });
+          if (msgs.length > 0) {
+            const lastMsg = msgs[0];
+            const senderNumber = lastMsg.from.split('@')[0];
+            const ownerNumber = client.info && client.info.wid ? client.info.wid.user : '';
+            const isOwner = lastMsg.fromMe || (senderNumber === ownerNumber);
+            
+            let senderName = chat.name || senderNumber;
+            const saved = savedContacts.find(c => c.phone === senderNumber);
+            if (saved) {
+              senderName = saved.name;
+            } else {
+              const contact = await lastMsg.getContact();
+              senderName = contact.name || contact.pushname || senderName;
+            }
+            
+            const timestampStr = new Date(lastMsg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+            let bodyText = lastMsg.body || '';
+            if (lastMsg.hasMedia) {
+              bodyText = '[Attachment File]';
+            }
+            
+            // Detect if it was an auto-reply
+            const isAutoReply = lastMsg.fromMe && (
+              autoReplies.some(r => r.response === lastMsg.body) ||
+              (botSettings.aiEnabled && lastMsg.body.includes('[AI]'))
+            );
+
+            messagesHistory.push({
+              id: lastMsg.id.id,
+              timestamp: timestampStr,
+              fromMe: lastMsg.fromMe,
+              sender: isOwner ? 'Me' : senderName,
+              message: bodyText,
+              chatId: chatId,
+              chatName: chat.name || senderName,
+              isAutoReply: isAutoReply
+            });
+            populatedCount++;
+          }
+        }
+      }
+      if (populatedCount > 0) {
+        // Sort history by timestamp to keep chronological logs
+        messagesHistory.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        saveMessages();
+        console.log(`[+] Pre-populated dashboard with ${populatedCount} active chats.`);
+      }
+    } catch (chatErr) {
+      console.error('[-] Error fetching initial chats on startup:', chatErr.message);
+    }
 
     // Trigger an immediate remote session backup in 30 seconds to ensure the session is saved to MongoDB
     if (client.authStrategy instanceof RemoteAuth) {
@@ -555,6 +619,13 @@ function initializeClient() {
           senderName = contact.name || contact.pushname || senderNumber;
         }
       }
+
+      // Check if contact is blacklisted or chat is archived
+      const isIgnored = chat.archived || (botSettings.ignoredContacts && botSettings.ignoredContacts.some(ignored => {
+        const cleanIgnored = ignored.toLowerCase().trim();
+        return senderName.toLowerCase().includes(cleanIgnored) || 
+               senderNumber.includes(cleanIgnored);
+      }));
 
       const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
 
@@ -607,6 +678,11 @@ function initializeClient() {
 
       // Auto-reply logic (only for incoming messages, not from self, and not media)
       if (!msg.fromMe && !msg.hasMedia) {
+        // Skip ignored or archived contacts from auto-responses
+        if (isIgnored) {
+          return;
+        }
+
         const text = bodyText.toLowerCase().trim();
         
         // 1. Match static keywords using Word Boundaries to avoid substring matches
@@ -908,18 +984,26 @@ app.get('/api/settings', checkPassword, (req, res) => {
   res.json({
     aiEnabled: botSettings.aiEnabled,
     systemPrompt: botSettings.systemPrompt,
+    ignoredContacts: botSettings.ignoredContacts || ["Joy"],
     hasGeminiKey: process.env.GEMINI_API_KEY ? true : false
   });
 });
 
 app.post('/api/settings', checkPassword, (req, res) => {
-  const { aiEnabled, systemPrompt } = req.body;
+  const { aiEnabled, systemPrompt, ignoredContacts } = req.body;
   
   if (aiEnabled !== undefined) {
     botSettings.aiEnabled = !!aiEnabled;
   }
   if (systemPrompt !== undefined) {
     botSettings.systemPrompt = systemPrompt.trim();
+  }
+  if (ignoredContacts !== undefined) {
+    if (Array.isArray(ignoredContacts)) {
+      botSettings.ignoredContacts = ignoredContacts.map(c => c.trim());
+    } else if (typeof ignoredContacts === 'string') {
+      botSettings.ignoredContacts = ignoredContacts.split(',').map(c => c.trim()).filter(c => c !== '');
+    }
   }
   
   saveSettings();
