@@ -8,12 +8,12 @@
     "start": "node index.js"
   },
   "dependencies": {
-    "whatsapp-web.js": "^1.23.0",
-    "qrcode-terminal": "^0.12.0",
+    "adm-zip": "^0.5.12",
     "express": "^4.19.2",
-    "qrcode": "^1.5.3",
     "mongoose": "^7.6.10",
-    "wwebjs-mongo": "^1.1.0",
-    "adm-zip": "^0.5.12"
+    "qrcode": "^1.5.3",
+    "qrcode-terminal": "^0.12.0",
+    "whatsapp-web.js": "^1.34.7",
+    "wwebjs-mongo": "^1.1.0"
   }
 }

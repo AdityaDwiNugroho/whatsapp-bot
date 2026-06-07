@@ -351,7 +351,7 @@ async function handleStatusUpdate(msg) {
       }
     }
 
-    const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+    const timestampStr = formatLocalTimestamp(msg.timestamp);
 
     const statusObj = {
       id: msg.id.id,
@@ -536,6 +536,13 @@ function formatPhoneNumber(num) {
     clean = clean + '@c.us';
   }
   return clean;
+}
+
+// Helper: Formats timestamp to machine's local timezone format (YYYY-MM-DD HH:MM:SS)
+function formatLocalTimestamp(timestampEpoch) {
+  const d = new Date(timestampEpoch * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
 // Helper: Auto-locates Google Chrome on Windows or falls back to env variable
@@ -748,7 +755,7 @@ function initializeClient() {
               senderName = contact.name || contact.pushname || senderName;
             }
             
-            const timestampStr = new Date(lastMsg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+            const timestampStr = formatLocalTimestamp(lastMsg.timestamp);
             let bodyText = lastMsg.body || '';
             if (lastMsg.hasMedia) {
               bodyText = '[Attachment File]';
@@ -843,7 +850,7 @@ function initializeClient() {
                senderNumber.includes(cleanIgnored);
       }));
 
-      const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+      const timestampStr = formatLocalTimestamp(msg.timestamp);
 
       // Detect if this outgoing message is an auto-reply response
       const isAutoReply = msg.fromMe && (
