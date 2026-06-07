@@ -131,11 +131,19 @@ const messagesPath = path.join(__dirname, 'messages_history.json');
 const repliesPath = path.join(__dirname, 'auto_replies.json');
 const settingsPath = path.join(__dirname, 'bot_settings.json');
 const contactsPath = path.join(__dirname, 'saved_contacts.json');
+const statusesPath = path.join(__dirname, 'statuses_history.json');
+const statusMediaDir = path.join(__dirname, 'public', 'status_media');
+
+// Ensure public/status_media directory exists
+if (!fs.existsSync(statusMediaDir)) {
+  fs.mkdirSync(statusMediaDir, { recursive: true });
+}
 
 // Memory storage
 let botStatus = 'Initializing...';
 let latestQrCode = null;
 let messagesHistory = [];
+let statusesHistory = [];
 let autoReplies = [];
 let botSettings = {
   aiEnabled: false,
@@ -175,6 +183,191 @@ function saveMessages() {
     fs.writeFileSync(messagesPath, JSON.stringify(messagesHistory, null, 2));
   } catch (err) {
     console.error('[-] Error saving message history:', err.message);
+  }
+}
+
+// Load status updates history from disk
+function loadStatuses() {
+  if (fs.existsSync(statusesPath)) {
+    try {
+      statusesHistory = JSON.parse(fs.readFileSync(statusesPath, 'utf8'));
+      console.log(`[+] Loaded ${statusesHistory.length} status updates from local history.`);
+    } catch (err) {
+      console.error('[-] Error loading status history:', err.message);
+      statusesHistory = [];
+    }
+  }
+}
+
+// Save status updates history to disk
+function saveStatuses() {
+  try {
+    fs.writeFileSync(statusesPath, JSON.stringify(statusesHistory, null, 2));
+  } catch (err) {
+    console.error('[-] Error saving status history:', err.message);
+  }
+}
+
+// Prune statuses older than 24 hours
+async function pruneExpiredStatuses() {
+  const now = Math.floor(Date.now() / 1000);
+  const twentyFourHours = 24 * 60 * 60;
+  const activeStatuses = [];
+  const expiredStatuses = [];
+
+  for (const status of statusesHistory) {
+    if (now - status.timestamp < twentyFourHours) {
+      activeStatuses.push(status);
+    } else {
+      expiredStatuses.push(status);
+    }
+  }
+
+  if (expiredStatuses.length > 0) {
+    console.log(`[+] Pruning ${expiredStatuses.length} expired status updates.`);
+    for (const status of expiredStatuses) {
+      if (status.mediaPath) {
+        const fullPath = path.join(__dirname, 'public', status.mediaPath);
+        try {
+          if (fs.existsSync(fullPath)) {
+            await fs.promises.unlink(fullPath);
+            console.log(`[+] Deleted expired status media file: ${status.mediaPath}`);
+          }
+        } catch (err) {
+          console.error(`[-] Error deleting expired status media ${status.mediaPath}:`, err.message);
+        }
+      }
+    }
+    statusesHistory = activeStatuses;
+    saveStatuses();
+  }
+}
+
+// Clean up orphan media files on server startup
+async function cleanupOrphanStatusMedia() {
+  try {
+    if (!fs.existsSync(statusMediaDir)) {
+      fs.mkdirSync(statusMediaDir, { recursive: true });
+      return;
+    }
+    const files = await fs.promises.readdir(statusMediaDir);
+    const activeMediaPaths = new Set(statusesHistory.map(s => s.mediaPath ? path.basename(s.mediaPath) : null).filter(Boolean));
+    for (const file of files) {
+      if (!activeMediaPaths.has(file)) {
+        const fullPath = path.join(statusMediaDir, file);
+        try {
+          await fs.promises.unlink(fullPath);
+          console.log(`[+] Deleted orphan status media file: ${file}`);
+        } catch (err) {
+          // Ignore deletion error
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[-] Error cleaning up orphan status media:', err.message);
+  }
+}
+
+// Handle status updates broadcast to status@broadcast JID
+async function handleStatusUpdate(msg) {
+  try {
+    let authorJid = msg.author;
+    if (!authorJid) {
+      if (msg.fromMe) {
+        authorJid = client.info && client.info.wid ? client.info.wid._serialized : 'me@c.us';
+      } else {
+        authorJid = msg.from;
+      }
+    }
+
+    const authorNumber = authorJid.split('@')[0];
+    
+    // Check if the author is ignored
+    const isIgnored = botSettings.ignoredContacts && botSettings.ignoredContacts.some(ignored => {
+      const cleanIgnored = ignored.toLowerCase().trim();
+      return authorNumber.includes(cleanIgnored);
+    });
+    if (isIgnored) return;
+
+    // Avoid duplicate status entries
+    const isDuplicate = statusesHistory.some(s => s.id === msg.id.id);
+    if (isDuplicate) return;
+
+    // Resolve author display name
+    let authorName = authorNumber;
+    const saved = savedContacts.find(c => c.phone === authorNumber);
+    if (saved) {
+      authorName = saved.name;
+    } else {
+      try {
+        const contact = await msg.getContact();
+        authorName = contact.name || contact.pushname || authorNumber;
+      } catch (err) {
+        // Fallback to number
+      }
+    }
+
+    let mediaPath = null;
+    let mediaType = null;
+    
+    if (msg.hasMedia) {
+      try {
+        const media = await msg.downloadMedia();
+        if (media) {
+          let ext = 'bin';
+          const mime = media.mimetype.toLowerCase();
+          if (mime.includes('image/jpeg') || mime.includes('image/jpg')) ext = 'jpg';
+          else if (mime.includes('image/png')) ext = 'png';
+          else if (mime.includes('image/gif')) ext = 'gif';
+          else if (mime.includes('video/mp4')) ext = 'mp4';
+          else if (mime.includes('audio/ogg') || mime.includes('audio/mpeg')) ext = 'ogg';
+
+          const filename = `${msg.id.id}.${ext}`;
+          const destPath = path.join(statusMediaDir, filename);
+
+          await fs.promises.writeFile(destPath, Buffer.from(media.data, 'base64'));
+          mediaPath = `status_media/${filename}`;
+          
+          if (mime.includes('image')) mediaType = 'image';
+          else if (mime.includes('video')) mediaType = 'video';
+          else if (mime.includes('audio')) mediaType = 'audio';
+          console.log(`[+] Saved status media to: ${mediaPath}`);
+        }
+      } catch (mediaErr) {
+        console.error('[-] Error downloading status media:', mediaErr.message);
+      }
+    }
+
+    const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
+
+    const statusObj = {
+      id: msg.id.id,
+      timestamp: msg.timestamp,
+      timestampStr: timestampStr,
+      author: authorJid,
+      authorName: authorName,
+      message: msg.body || '',
+      mediaPath: mediaPath,
+      mediaType: mediaType
+    };
+
+    statusesHistory.push(statusObj);
+    statusesHistory.sort((a, b) => a.timestamp - b.timestamp);
+    if (statusesHistory.length > 200) {
+      const removed = statusesHistory.splice(0, statusesHistory.length - 200);
+      for (const r of removed) {
+        if (r.mediaPath) {
+          const fullPath = path.join(__dirname, 'public', r.mediaPath);
+          try {
+            if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+          } catch (e) {}
+        }
+      }
+    }
+    saveStatuses();
+    console.log(`[STATUS] Captured status update from ${authorName}: "${msg.body || '[Media]'}"`);
+  } catch (err) {
+    console.error('[-] Error handling status update:', err.message);
   }
 }
 
@@ -305,6 +498,7 @@ loadMessages();
 loadReplies();
 loadSettings();
 loadContacts();
+loadStatuses();
 
 // Basic Authorization Middleware for Cloud Deployments & PC Connector
 const checkPassword = (req, res, next) => {
@@ -600,8 +794,11 @@ function initializeClient() {
   // Event: Handling incoming and outgoing messages in real-time
   client.on('message_create', async (msg) => {
     try {
-      // Skip WhatsApp Status/Broadcast updates
-      if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') return;
+      // Handle WhatsApp Status/Broadcast updates
+      if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') {
+        await handleStatusUpdate(msg);
+        return;
+      }
 
       const chat = await msg.getChat();
       if (chat.isGroup || chat.id._serialized === 'status@broadcast') return; // Skip group chats and status broadcasts
@@ -878,6 +1075,12 @@ app.get('/api/messages', checkPassword, (req, res) => {
   res.json(messagesHistory);
 });
 
+// REST API: Get status updates timeline (requires auth if DASHBOARD_PASSWORD set)
+app.get('/api/statuses', checkPassword, async (req, res) => {
+  await pruneExpiredStatuses();
+  res.json(statusesHistory);
+});
+
 // REST API: Send WhatsApp message (with optional file attachment support) (requires auth if DASHBOARD_PASSWORD set)
 app.post('/api/send', checkPassword, async (req, res) => {
   const { contact, message, filename, fileData } = req.body;
@@ -1067,4 +1270,10 @@ app.delete('/api/contacts', checkPassword, async (req, res) => {
 app.listen(PORT, () => {
   console.log(`[+] Web control panel and API running at http://localhost:${PORT}`);
   console.log(`[+] Dashboard security: ${process.env.DASHBOARD_PASSWORD ? 'ENABLED' : 'DISABLED (Set DASHBOARD_PASSWORD env variable to secure)'}`);
+  
+  // Clean up orphan status media and run status pruner on startup
+  cleanupOrphanStatusMedia();
+  pruneExpiredStatuses();
+  // Register an hourly status pruning interval
+  setInterval(pruneExpiredStatuses, 60 * 60 * 1000);
 });

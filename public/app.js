@@ -54,9 +54,12 @@ const cancelAttachmentBtn = document.getElementById('cancelAttachmentBtn');
 const overviewView = document.getElementById('overviewView');
 const autoRepliesView = document.getElementById('autoRepliesView');
 const contactsView = document.getElementById('contactsView');
+const timelineView = document.getElementById('timelineView');
 const navDashboardBtn = document.getElementById('navDashboardBtn');
+const navTimelineBtn = document.getElementById('navTimelineBtn');
 const navAutoReplyBtn = document.getElementById('navAutoReplyBtn');
 const navContactsBtn = document.getElementById('navContactsBtn');
+const timelineFeedContainer = document.getElementById('timelineFeedContainer');
 
 const statTotalMessages = document.getElementById('statTotalMessages');
 const statAutoReplies = document.getElementById('statAutoReplies');
@@ -128,12 +131,14 @@ closeNewChatBtn.addEventListener('click', () => {
   newChatNumberInput.value = '';
 });
 
-// Navigation logic between overview/auto-replies/contacts
+// Navigation logic between overview/timeline/auto-replies/contacts
 navDashboardBtn.addEventListener('click', () => {
   navDashboardBtn.classList.add('active');
+  navTimelineBtn.classList.remove('active');
   navAutoReplyBtn.classList.remove('active');
   navContactsBtn.classList.remove('active');
   overviewView.classList.remove('hidden');
+  timelineView.classList.add('hidden');
   autoRepliesView.classList.add('hidden');
   contactsView.classList.add('hidden');
   
@@ -144,12 +149,32 @@ navDashboardBtn.addEventListener('click', () => {
   renderChatList();
 });
 
+navTimelineBtn.addEventListener('click', () => {
+  navTimelineBtn.classList.add('active');
+  navDashboardBtn.classList.remove('active');
+  navAutoReplyBtn.classList.remove('active');
+  navContactsBtn.classList.remove('active');
+  timelineView.classList.remove('hidden');
+  overviewView.classList.add('hidden');
+  autoRepliesView.classList.add('hidden');
+  contactsView.classList.add('hidden');
+  
+  // Close chat thread when going to timeline
+  selectedChatId = null;
+  resetStagedFile();
+  chatThreadView.classList.add('hidden');
+  renderChatList();
+  fetchStatuses();
+});
+
 navAutoReplyBtn.addEventListener('click', () => {
   navAutoReplyBtn.classList.add('active');
   navDashboardBtn.classList.remove('active');
+  navTimelineBtn.classList.remove('active');
   navContactsBtn.classList.remove('active');
   autoRepliesView.classList.remove('hidden');
   overviewView.classList.add('hidden');
+  timelineView.classList.add('hidden');
   contactsView.classList.add('hidden');
   
   // Close chat thread when going to auto reply settings
@@ -164,9 +189,11 @@ navAutoReplyBtn.addEventListener('click', () => {
 navContactsBtn.addEventListener('click', () => {
   navContactsBtn.classList.add('active');
   navDashboardBtn.classList.remove('active');
+  navTimelineBtn.classList.remove('active');
   navAutoReplyBtn.classList.remove('active');
   contactsView.classList.remove('hidden');
   overviewView.classList.add('hidden');
+  timelineView.classList.add('hidden');
   autoRepliesView.classList.add('hidden');
   
   // Close chat thread when going to contacts directory
@@ -268,7 +295,9 @@ startChatBtn.addEventListener('click', () => {
   // Show chat thread area
   chatThreadView.classList.remove('hidden');
   overviewView.classList.add('hidden');
+  timelineView.classList.add('hidden');
   autoRepliesView.classList.add('hidden');
+  contactsView.classList.add('hidden');
   
   // Populate blank layout or history if exists
   activeChatName.textContent = num;
@@ -289,6 +318,8 @@ closeChatBtn.addEventListener('click', () => {
   // Fallback to active view panel depending on active navigation tab
   if (navDashboardBtn.classList.contains('active')) {
     overviewView.classList.remove('hidden');
+  } else if (navTimelineBtn.classList.contains('active')) {
+    timelineView.classList.remove('hidden');
   } else if (navAutoReplyBtn.classList.contains('active')) {
     autoRepliesView.classList.remove('hidden');
   } else if (navContactsBtn.classList.contains('active')) {
@@ -429,7 +460,9 @@ window.selectChat = function(chatId) {
   // Swap UI panes
   chatThreadView.classList.remove('hidden');
   overviewView.classList.add('hidden');
+  timelineView.classList.add('hidden');
   autoRepliesView.classList.add('hidden');
+  contactsView.classList.add('hidden');
   
   const chatObj = groupedChats.find(c => c.chatId === chatId);
   if (chatObj) {
@@ -847,6 +880,104 @@ async function fetchQrCode() {
   }
 }
 
+// Parse and format status relative publication time
+function formatRelativeTime(timestampStr) {
+  try {
+    const parts = timestampStr.split(' ');
+    const dateParts = parts[0].split('-');
+    const timeParts = parts[1].split(':');
+    
+    const date = new Date(
+      parseInt(dateParts[0]),
+      parseInt(dateParts[1]) - 1,
+      parseInt(dateParts[2]),
+      parseInt(timeParts[0]),
+      parseInt(timeParts[1]),
+      parseInt(timeParts[2] || '0')
+    );
+    
+    const diffMs = Date.now() - date.getTime();
+    const diffMins = Math.floor(diffMs / (60 * 1000));
+    
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} minutes ago`;
+    
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hours ago`;
+    
+    return 'Yesterday';
+  } catch (err) {
+    return timestampStr;
+  }
+}
+
+// Fetch active statuses from server
+async function fetchStatuses() {
+  if (!isAuthenticated) return;
+  try {
+    const response = await apiRequest('/api/statuses');
+    const statuses = await response.json();
+    renderStatuses(statuses);
+  } catch (err) {
+    console.error('Fetch statuses error:', err);
+  }
+}
+
+// Render status cards in Timeline feed
+function renderStatuses(statuses) {
+  if (statuses.length === 0) {
+    timelineFeedContainer.innerHTML = '<div class="empty-state-timeline">No status updates yet.</div>';
+    return;
+  }
+  
+  // Sort status timeline chronologically: newest updates first
+  const sorted = [...statuses].sort((a, b) => b.timestamp - a.timestamp);
+  
+  timelineFeedContainer.innerHTML = sorted.map(status => {
+    const initials = getInitials(status.authorName);
+    const bgGradient = getAvatarGradient(status.authorName);
+    const relativeTime = formatRelativeTime(status.timestampStr);
+    
+    let contentHtml = '';
+    if (status.mediaPath) {
+      let mediaTag = '';
+      if (status.mediaType === 'image') {
+        mediaTag = `<img src="${status.mediaPath}" alt="Status Image">`;
+      } else if (status.mediaType === 'video') {
+        mediaTag = `<video src="${status.mediaPath}" controls preload="metadata"></video>`;
+      } else if (status.mediaType === 'audio') {
+        mediaTag = `<audio src="${status.mediaPath}" controls preload="metadata"></audio>`;
+      } else {
+        mediaTag = `<a href="${status.mediaPath}" target="_blank">View Status Media</a>`;
+      }
+      
+      contentHtml = `
+        <div class="status-media">${mediaTag}</div>
+        ${status.message ? `<div class="status-caption">${escapeHtml(status.message)}</div>` : ''}
+      `;
+    } else {
+      contentHtml = `
+        <div class="status-text-only">${escapeHtml(status.message).replace(/\n/g, '<br>')}</div>
+      `;
+    }
+    
+    return `
+      <div class="status-card" id="status-${status.id}">
+        <div class="status-header">
+          <div class="status-avatar" style="background: ${bgGradient}">${initials}</div>
+          <div class="status-meta">
+            <span class="status-author">${escapeHtml(status.authorName)}</span>
+            <span class="status-time">${relativeTime}</span>
+          </div>
+        </div>
+        <div class="status-content">
+          ${contentHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 // Initialize Loop
 async function init() {
   await checkStatus();
@@ -855,6 +986,10 @@ async function init() {
     await fetchReplies();
     await fetchSettings();
     await fetchContacts();
+    
+    if (navTimelineBtn.classList.contains('active')) {
+      await fetchStatuses();
+    }
   }
 }
 
@@ -864,3 +999,8 @@ init();
 // Interval loops
 setInterval(checkStatus, 3000);   // Poll connectivity and active messages every 3s
 setInterval(fetchReplies, 10000); // Sync auto replies every 10s
+setInterval(() => {
+  if (isAuthenticated && navTimelineBtn.classList.contains('active')) {
+    fetchStatuses();
+  }
+}, 5000);                         // Poll statuses every 5s if on Timeline tab

@@ -99,6 +99,10 @@
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
             <span>Overview</span>
           </button>
+          <button id="navTimelineBtn" class="footer-nav-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span>Timeline</span>
+          </button>
           <button id="navAutoReplyBtn" class="footer-nav-btn">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
             <span>Auto Replies</span>
@@ -252,6 +256,19 @@
                 <span class="tip-bullet">SOUND</span>
                 <p>Leave this browser tab open on your phone or desktop to hear audio alert chiming whenever someone sends you a new message.</p>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TIMELINE VIEW -->
+        <div id="timelineView" class="overview-container hidden">
+          <div class="overview-header">
+            <h2>WhatsApp Status Timeline</h2>
+            <p>View stories and status updates posted by your contacts within the last 24 hours.</p>
+          </div>
+          <div class="timeline-feed-wrapper">
+            <div id="timelineFeedContainer" class="timeline-feed">
+              <div class="empty-state-timeline">No status updates yet.</div>
             </div>
           </div>
         </div>
