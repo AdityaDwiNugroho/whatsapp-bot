@@ -139,9 +139,12 @@ let messagesHistory = [];
 let autoReplies = [];
 let botSettings = {
   aiEnabled: false,
-  systemPrompt: "You are a helpful personal assistant representing the account owner. Reply in a friendly, concise, and natural tone. Do not use any emojis under any circumstances.",
+  systemPrompt: "You represent the account owner in personal WhatsApp chats. Write in a very natural, casual, and friendly tone using informal Indonesian (Bahasa Indonesia santai/gaul, e.g. use 'gue'/'saya' or 'lu' depending on context, write naturally like a human chatter). Keep replies concise and direct. Do not use any emojis.",
   ignoredContacts: ["Joy"]
 };
+
+// Tracking AI-generated response texts for dashboard flags
+const recentAiReplies = new Set();
 
 // Command Queue for PC remote control
 let pendingCommands = [];
@@ -632,7 +635,7 @@ function initializeClient() {
       // Detect if this outgoing message is an auto-reply response
       const isAutoReply = msg.fromMe && (
         autoReplies.some(r => r.response === msg.body) ||
-        (botSettings.aiEnabled && msg.body.includes('[AI]')) // flag if it was an AI response
+        recentAiReplies.has(msg.body)
       );
 
       // Filter media body text
@@ -740,9 +743,11 @@ function initializeClient() {
                   cleanText = cleanText.replace(saveRegex, '').trim();
                 }
 
-                // Prepend [AI] tag to distinguish AI responses from manual replies
-                const responseText = `[AI] ${cleanText}`;
-                await msg.reply(responseText);
+                // Add to temporary tracking set to mark as auto-reply in dashboard logs without prepending text
+                recentAiReplies.add(cleanText);
+                setTimeout(() => recentAiReplies.delete(cleanText), 10000);
+
+                await msg.reply(cleanText);
                 console.log(`[AI-RESPONSE] Sent Gemini auto-reply to ${senderName}`);
               }
             } catch (err) {
