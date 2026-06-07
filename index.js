@@ -49,6 +49,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const messagesPath = path.join(__dirname, 'messages_history.json');
 const repliesPath = path.join(__dirname, 'auto_replies.json');
 const settingsPath = path.join(__dirname, 'bot_settings.json');
+const contactsPath = path.join(__dirname, 'saved_contacts.json');
 
 // Memory storage
 let botStatus = 'Initializing...';
@@ -149,10 +150,75 @@ function saveSettings() {
   }
 }
 
+// Memory-backed Contacts Database
+let savedContacts = [];
+
+function loadContacts() {
+  if (fs.existsSync(contactsPath)) {
+    try {
+      savedContacts = JSON.parse(fs.readFileSync(contactsPath, 'utf8'));
+      console.log(`[+] Loaded ${savedContacts.length} saved contacts.`);
+    } catch (err) {
+      console.error('[-] Error loading saved contacts:', err.message);
+      savedContacts = [];
+    }
+  }
+}
+
+function saveContacts() {
+  try {
+    fs.writeFileSync(contactsPath, JSON.stringify(savedContacts, null, 2));
+  } catch (err) {
+    console.error('[-] Error saving saved contacts:', err.message);
+  }
+}
+
+async function saveContactDb(name, phone) {
+  const cleanPhone = phone.replace(/[^\d]/g, '');
+  const existingIndex = savedContacts.findIndex(c => c.phone === cleanPhone);
+  if (existingIndex > -1) {
+    savedContacts[existingIndex].name = name;
+  } else {
+    savedContacts.push({ name, phone: cleanPhone });
+  }
+  saveContacts();
+  
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const col = mongoose.connection.db.collection('custom_contacts');
+      await col.updateOne(
+        { phone: cleanPhone },
+        { $set: { name: name, updatedAt: new Date() } },
+        { upsert: true }
+      );
+      console.log(`[+] Saved contact ${name} (${cleanPhone}) to MongoDB.`);
+    } catch (err) {
+      console.error('[-] Failed saving contact to MongoDB:', err.message);
+    }
+  }
+}
+
+async function loadContactsFromDb() {
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const col = mongoose.connection.db.collection('custom_contacts');
+      const dbContacts = await col.find({}).toArray();
+      if (dbContacts.length > 0) {
+        savedContacts = dbContacts.map(c => ({ name: c.name, phone: c.phone }));
+        saveContacts();
+        console.log(`[+] Loaded ${savedContacts.length} custom contacts from MongoDB.`);
+      }
+    } catch (err) {
+      console.error('[-] Failed loading custom contacts from MongoDB:', err.message);
+    }
+  }
+}
+
 // Initialize persistence
 loadMessages();
 loadReplies();
 loadSettings();
+loadContacts();
 
 // Basic Authorization Middleware for Cloud Deployments & PC Connector
 const checkPassword = (req, res, next) => {
@@ -251,7 +317,21 @@ async function generateGeminiResponse(chatId, senderName) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   
   // Inject context helper in system instruction
-  const systemInstructionText = `${botSettings.systemPrompt}\n\nAdditional Context:\n- Current Date/Time: ${new Date().toLocaleString('id-ID')}\n- Active Chat Contact Name: ${senderName}`;
+  const systemInstructionText = `${botSettings.systemPrompt}
+
+You also have the capability to save new contacts or update contact names in the database. 
+If a contact asks you to save their number, change/update their name, or remember them by a name:
+You MUST append the following tag to the very end of your message response:
+[SAVE_CONTACT: name="Desired Name", phone="whatsapp_number_or_JID_digits"]
+
+Replace 'Desired Name' with the name they requested.
+Replace 'whatsapp_number_or_JID_digits' with their phone number digits (e.g. "628123456789"). You can use the active contact's phone number JID digits provided below if they say "save my number".
+Do not output this tag unless name saving/updating was explicitly requested.
+
+Additional Context:
+- Current Date/Time: ${new Date().toLocaleString('id-ID')}
+- Active Chat Contact Name: ${senderName}
+- Active Chat Contact Phone/JID: ${chatId.split('@')[0]}`;
 
   const payload = {
     contents: alternatingContents,
@@ -357,8 +437,13 @@ function initializeClient() {
       if (msg.fromMe) {
         senderName = 'Me';
       } else {
-        const contact = await msg.getContact();
-        senderName = contact.name || contact.pushname || senderNumber;
+        const saved = savedContacts.find(c => c.phone === senderNumber);
+        if (saved) {
+          senderName = saved.name;
+        } else {
+          const contact = await msg.getContact();
+          senderName = contact.name || contact.pushname || senderNumber;
+        }
       }
 
       const timestampStr = new Date(msg.timestamp * 1000).toISOString().replace('T', ' ').substring(0, 19);
@@ -447,8 +532,30 @@ function initializeClient() {
             try {
               const aiText = await generateGeminiResponse(messageObj.chatId, senderName);
               if (aiText) {
+                let cleanText = aiText;
+                
+                // Parse for [SAVE_CONTACT: name="...", phone="..."]
+                const saveRegex = /\[SAVE_CONTACT:\s*name=["']([^"']+)["']\s*,\s*phone=["']([^"']+)["']\]/i;
+                const match = cleanText.match(saveRegex);
+                
+                if (match) {
+                  const contactName = match[1].trim();
+                  const rawPhone = match[2].trim();
+                  let cleanPhone = rawPhone.replace(/[^\d]/g, '');
+                  if (cleanPhone.startsWith('0')) {
+                    cleanPhone = '62' + cleanPhone.slice(1);
+                  }
+                  
+                  if (cleanPhone) {
+                    await saveContactDb(contactName, cleanPhone);
+                  }
+                  
+                  // Strip the tag from the text response
+                  cleanText = cleanText.replace(saveRegex, '').trim();
+                }
+
                 // Prepend [AI] tag to distinguish AI responses from manual replies
-                const responseText = `[AI] ${aiText}`;
+                const responseText = `[AI] ${cleanText}`;
                 await msg.reply(responseText);
                 console.log(`[AI-RESPONSE] Sent Gemini auto-reply to ${senderName}`);
               }
@@ -502,9 +609,10 @@ if (mongoUri) {
   botStatus = 'Connecting to Database...';
   
   mongoose.connect(mongoUri)
-    .then(() => {
-      console.log('[+] Connected to MongoDB successfully.');
-      const store = new MongoStore({ mongoose: mongoose });
+      .then(() => {
+        console.log('[+] Connected to MongoDB successfully.');
+        loadContactsFromDb().catch(err => console.error('[-] Error loading custom contacts:', err.message));
+        const store = new MongoStore({ mongoose: mongoose });
       client = new Client({
         authStrategy: new CustomRemoteAuth({
           store: store,
@@ -704,6 +812,51 @@ app.post('/api/settings', checkPassword, (req, res) => {
   
   saveSettings();
   res.json({ success: true, message: 'Settings saved successfully!' });
+});
+
+// --- REST API: Contacts Management (secured via DASHBOARD_PASSWORD) ---
+app.get('/api/contacts', checkPassword, (req, res) => {
+  res.json(savedContacts);
+});
+
+app.post('/api/contacts', checkPassword, async (req, res) => {
+  const { name, phone } = req.body;
+  if (!name || !phone) {
+    return res.status(400).json({ error: 'Name and phone are required' });
+  }
+  let cleanPhone = phone.replace(/[^\d]/g, '');
+  if (cleanPhone.startsWith('0')) {
+    cleanPhone = '62' + cleanPhone.slice(1);
+  }
+  await saveContactDb(name.trim(), cleanPhone);
+  res.json({ success: true, message: 'Contact saved successfully!' });
+});
+
+app.delete('/api/contacts', checkPassword, async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ error: 'Phone is required' });
+  }
+  
+  let cleanPhone = phone.replace(/[^\d]/g, '');
+  if (cleanPhone.startsWith('0')) {
+    cleanPhone = '62' + cleanPhone.slice(1);
+  }
+
+  savedContacts = savedContacts.filter(c => c.phone !== cleanPhone);
+  saveContacts();
+
+  if (mongoose.connection.readyState === 1) {
+    try {
+      const col = mongoose.connection.db.collection('custom_contacts');
+      await col.deleteOne({ phone: cleanPhone });
+      console.log(`[+] Deleted contact ${cleanPhone} from MongoDB.`);
+    } catch (err) {
+      console.error('[-] Failed deleting contact from MongoDB:', err.message);
+    }
+  }
+
+  res.json({ success: true, message: 'Contact deleted successfully!' });
 });
 
 // Start Express Web Server
