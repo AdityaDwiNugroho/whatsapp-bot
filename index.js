@@ -1,5 +1,5 @@
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } = pkg;
+const { Client, LocalAuth, MessageMedia } = pkg;
 import qrcodeTerminal from 'qrcode-terminal';
 import express from 'express';
 import QRCode from 'qrcode';
@@ -14,7 +14,7 @@ const app = express();
 const PORT = process.env.PORT || 7860;
 
 // Setup Middleware
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increase body size limit for file uploads
 app.use(express.static(path.join(__dirname, 'public')));
 
 // File paths for local persistence
@@ -188,12 +188,18 @@ client.on('message_create', async (msg) => {
     // Detect if this outgoing message is an auto-reply response
     const isAutoReply = msg.fromMe && autoReplies.some(r => r.response === msg.body);
 
+    // Filter media body text
+    let bodyText = msg.body || '';
+    if (msg.hasMedia) {
+      bodyText = '[Attachment File]';
+    }
+
     const messageObj = {
       id: msg.id.id,
       timestamp: timestampStr,
       fromMe: msg.fromMe,
       sender: senderName,
-      message: msg.body || '',
+      message: bodyText,
       chatId: msg.fromMe ? msg.to : msg.from,
       chatName: chat.name || senderName,
       isAutoReply: isAutoReply
@@ -204,12 +210,12 @@ client.on('message_create', async (msg) => {
     if (!isDuplicate) {
       messagesHistory.push(messageObj);
       saveMessages();
-      console.log(`[MSG] ${msg.fromMe ? 'Out' : 'In'} - ${senderName}: "${msg.body}"`);
+      console.log(`[MSG] ${msg.fromMe ? 'Out' : 'In'} - ${senderName}: "${bodyText}"`);
     }
 
     // Auto-reply logic (only for incoming messages, not from self)
-    if (!msg.fromMe) {
-      const text = msg.body.toLowerCase().trim();
+    if (!msg.fromMe && !msg.hasMedia) {
+      const text = bodyText.toLowerCase().trim();
       const matchedRule = autoReplies.find(rule => text === rule.trigger.toLowerCase().trim());
       
       if (matchedRule) {
@@ -258,18 +264,34 @@ app.get('/api/messages', checkPassword, (req, res) => {
   res.json(messagesHistory);
 });
 
-// REST API: Send WhatsApp message (requires auth if DASHBOARD_PASSWORD set)
+// REST API: Send WhatsApp message (with optional file attachment support) (requires auth if DASHBOARD_PASSWORD set)
 app.post('/api/send', checkPassword, async (req, res) => {
-  const { contact, message } = req.body;
+  const { contact, message, filename, fileData } = req.body;
   
-  if (!contact || !message) {
-    return res.status(400).json({ error: 'Contact and message are required' });
+  if (!contact) {
+    return res.status(400).json({ error: 'Contact JID is required' });
+  }
+
+  if (!message && !fileData) {
+    return res.status(400).json({ error: 'Message content or file attachment is required' });
   }
 
   try {
     const formattedId = formatPhoneNumber(contact);
-    console.log(`[+] Sending message to ${formattedId}: "${message}"`);
-    await client.sendMessage(formattedId, message);
+    
+    if (fileData && filename) {
+      const base64Parts = fileData.split(';base64,');
+      const mimetype = base64Parts[0].split(':')[1];
+      const rawBase64 = base64Parts[1];
+      
+      const media = new MessageMedia(mimetype, rawBase64, filename);
+      console.log(`[+] Sending file attachment ${filename} to ${formattedId}`);
+      await client.sendMessage(formattedId, media, { caption: message || undefined });
+    } else {
+      console.log(`[+] Sending message to ${formattedId}: "${message}"`);
+      await client.sendMessage(formattedId, message);
+    }
+    
     res.json({ success: true, message: 'Message sent successfully!' });
   } catch (err) {
     console.error('[-] Send message error:', err.message);

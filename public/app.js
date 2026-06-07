@@ -8,6 +8,7 @@ let groupedChats = [];
 let autoReplies = [];
 let totalMessageCount = 0;
 let dashboardPassword = localStorage.getItem('dashboard_password') || '';
+let selectedFile = null; // Staged file attachment
 
 // DOM Elements
 const passwordModal = document.getElementById('passwordModal');
@@ -42,6 +43,13 @@ const closeChatBtn = document.getElementById('closeChatBtn');
 const messagesScroller = document.getElementById('messagesScroller');
 const messageTextInput = document.getElementById('messageTextInput');
 const sendMessageBtn = document.getElementById('sendMessageBtn');
+
+// Staged file attachment elements
+const attachFileBtn = document.getElementById('attachFileBtn');
+const fileAttachmentInput = document.getElementById('fileAttachmentInput');
+const attachmentBadge = document.getElementById('attachmentBadge');
+const attachmentName = document.getElementById('attachmentName');
+const cancelAttachmentBtn = document.getElementById('cancelAttachmentBtn');
 
 const overviewView = document.getElementById('overviewView');
 const autoRepliesView = document.getElementById('autoRepliesView');
@@ -114,6 +122,7 @@ navDashboardBtn.addEventListener('click', () => {
   
   // Close chat thread when going back to dashboard overview
   selectedChatId = null;
+  resetStagedFile();
   chatThreadView.classList.add('hidden');
   renderChatList();
 });
@@ -126,6 +135,7 @@ navAutoReplyBtn.addEventListener('click', () => {
   
   // Close chat thread when going to auto reply settings
   selectedChatId = null;
+  resetStagedFile();
   chatThreadView.classList.add('hidden');
   renderChatList();
   fetchReplies();
@@ -161,6 +171,40 @@ function formatTime(timestampStr) {
   return parts.length > 1 ? parts[1].substring(0, 5) : timestampStr;
 }
 
+// --- Attachment Handlers ---
+
+// Click trigger for file input
+attachFileBtn.addEventListener('click', () => {
+  fileAttachmentInput.click();
+});
+
+// Handle staging selected file
+fileAttachmentInput.addEventListener('change', () => {
+  const file = fileAttachmentInput.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    selectedFile = {
+      name: file.name,
+      data: e.target.result // base64 Data URL
+    };
+    attachmentName.textContent = file.name;
+    attachmentBadge.classList.remove('hidden');
+    messageTextInput.focus();
+  };
+  reader.readAsDataURL(file);
+});
+
+// Cancel staged file
+function resetStagedFile() {
+  selectedFile = null;
+  fileAttachmentInput.value = '';
+  attachmentBadge.classList.add('hidden');
+}
+
+cancelAttachmentBtn.addEventListener('click', resetStagedFile);
+
 // --- Main API integrations ---
 
 // Start new chat session
@@ -183,6 +227,7 @@ startChatBtn.addEventListener('click', () => {
   selectedChatId = formattedId;
   newChatModal.classList.add('hidden');
   newChatNumberInput.value = '';
+  resetStagedFile();
   
   // Show chat thread area
   chatThreadView.classList.remove('hidden');
@@ -202,6 +247,7 @@ startChatBtn.addEventListener('click', () => {
 // Close chat thread
 closeChatBtn.addEventListener('click', () => {
   selectedChatId = null;
+  resetStagedFile();
   chatThreadView.classList.add('hidden');
   
   // Fallback to overview or auto reply depending on active navigation tab
@@ -216,26 +262,36 @@ closeChatBtn.addEventListener('click', () => {
 // Send message click / keyboard
 async function sendMessage() {
   const text = messageTextInput.value.trim();
-  if (!text || !selectedChatId) return;
+  if (!text && !selectedFile) return;
+  if (!selectedChatId) return;
   
   try {
     messageTextInput.disabled = true;
     sendMessageBtn.disabled = true;
+    attachFileBtn.disabled = true;
+    
+    const payload = {
+      contact: selectedChatId,
+      message: text
+    };
+    
+    if (selectedFile) {
+      payload.filename = selectedFile.name;
+      payload.fileData = selectedFile.data;
+    }
     
     const response = await apiRequest('/api/send', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        contact: selectedChatId,
-        message: text
-      })
+      body: JSON.stringify(payload)
     });
     
     const data = await response.json();
     if (data.success) {
       messageTextInput.value = '';
+      resetStagedFile();
       // Quick fetch to update chat logs
       fetchMessages();
     } else {
@@ -246,6 +302,7 @@ async function sendMessage() {
   } finally {
     messageTextInput.disabled = false;
     sendMessageBtn.disabled = false;
+    attachFileBtn.disabled = false;
     messageTextInput.focus();
   }
 }
@@ -329,6 +386,7 @@ function renderChatList() {
 
 window.selectChat = function(chatId) {
   selectedChatId = chatId;
+  resetStagedFile();
   
   // Swap UI panes
   chatThreadView.classList.remove('hidden');
