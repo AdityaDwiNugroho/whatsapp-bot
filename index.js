@@ -278,7 +278,7 @@ function formatPhoneNumber(num) {
   return clean;
 }
 
-// Puppeteer configuration (custom User Agent to bypass bot detection)
+// Puppeteer configuration (custom User Agent to bypass bot detection and optimize memory)
 function getPuppeteerConfig() {
   return {
     headless: true,
@@ -294,6 +294,11 @@ function getPuppeteerConfig() {
       '--disk-cache-size=1',
       '--media-cache-size=1',
       '--disable-features=site-per-process',
+      '--disable-extensions',
+      '--disable-component-extensions-with-background-pages',
+      '--disable-default-apps',
+      '--mute-audio',
+      '--no-default-browser-check',
       '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     ]
   };
