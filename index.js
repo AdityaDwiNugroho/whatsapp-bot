@@ -10,37 +10,38 @@ import mongoose from 'mongoose';
 import { MongoStore } from 'wwebjs-mongo';
 import AdmZip from 'adm-zip';
 
-// Custom RemoteAuth class to bypass unzipper extraction failures and prune cache before saving
+// Custom RemoteAuth class to bypass unzipper extraction failures and prune cache safely before zipping
 class CustomRemoteAuth extends RemoteAuth {
-  async storeRemoteSession(options) {
+  async copyByRequiredDirs(from, to) {
+    // Copy the required session files to the temp directory first
+    await super.copyByRequiredDirs(from, to);
+
+    // Prune cache files from the temporary copy (to) to ensure the backup fits within MongoDB's 16MB limit
     try {
-      const defaultDir = path.join(this.userDataDir, 'Default');
       const targets = [
-        path.join(defaultDir, 'Cache'),
-        path.join(defaultDir, 'Code Cache'),
-        path.join(defaultDir, 'GPUCache'),
-        path.join(defaultDir, 'Service Worker', 'CacheStorage'),
-        path.join(defaultDir, 'Service Worker', 'ScriptCache'),
-        path.join(defaultDir, 'Service Worker', 'ServiceWorkerCache'),
-        path.join(defaultDir, 'CacheStorage'),
-        path.join(defaultDir, 'Blob_storage')
+        path.join(to, 'Cache'),
+        path.join(to, 'Code Cache'),
+        path.join(to, 'GPUCache'),
+        path.join(to, 'Service Worker', 'CacheStorage'),
+        path.join(to, 'Service Worker', 'ScriptCache'),
+        path.join(to, 'Service Worker', 'ServiceWorkerCache'),
+        path.join(to, 'CacheStorage'),
+        path.join(to, 'Blob_storage')
       ];
 
       for (const target of targets) {
         try {
           if (fs.existsSync(target)) {
             await fs.promises.rm(target, { recursive: true, force: true });
-            console.log(`[+] Pruned cache directory: ${target}`);
           }
         } catch (err) {
-          console.log(`[warning] Could not prune cache directory ${target}: ${err.message}`);
+          // Silent catch for files currently held
         }
       }
+      console.log('[+] Successfully pruned Chromium cache in temp session folder.');
     } catch (err) {
-      console.error('[-] Error during chrome cache pruning:', err.message);
+      console.error('[-] Error pruning temp session folder cache:', err.message);
     }
-
-    return super.storeRemoteSession(options);
   }
 
   async unCompressSession(compressedSessionPath) {
