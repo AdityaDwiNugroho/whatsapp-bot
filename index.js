@@ -520,7 +520,7 @@ function initializeClient() {
       const chats = await client.getChats();
       let populatedCount = 0;
       for (const chat of chats) {
-        if (chat.isGroup) continue; // skip group chats
+        if (chat.isGroup || chat.id._serialized === 'status@broadcast') continue; // skip group chats and status broadcasts
         
         const chatId = chat.id._serialized;
         const hasMessages = messagesHistory.some(m => m.chatId === chatId);
@@ -600,8 +600,11 @@ function initializeClient() {
   // Event: Handling incoming and outgoing messages in real-time
   client.on('message_create', async (msg) => {
     try {
+      // Skip WhatsApp Status/Broadcast updates
+      if (msg.from === 'status@broadcast' || msg.to === 'status@broadcast') return;
+
       const chat = await msg.getChat();
-      if (chat.isGroup) return; // Skip group chats
+      if (chat.isGroup || chat.id._serialized === 'status@broadcast') return; // Skip group chats and status broadcasts
 
       // Extract sender details
       let senderName = '';
