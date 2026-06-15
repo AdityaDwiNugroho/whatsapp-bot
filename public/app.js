@@ -86,6 +86,14 @@ const aiKeyBadge = document.getElementById('aiKeyBadge');
 const aiSystemPromptInput = document.getElementById('aiSystemPromptInput');
 const saveAiSettingsBtn = document.getElementById('saveAiSettingsBtn');
 
+// Google Classroom DOM Elements
+const classroomStatusBadge = document.getElementById('classroomStatusBadge');
+const classroomSetupAlert = document.getElementById('classroomSetupAlert');
+const classroomConnectedContainer = document.getElementById('classroomConnectedContainer');
+const classroomDisconnectedContainer = document.getElementById('classroomDisconnectedContainer');
+const connectClassroomBtn = document.getElementById('connectClassroomBtn');
+const disconnectClassroomBtn = document.getElementById('disconnectClassroomBtn');
+
 // --- Helper functions ---
 
 // Safe fetch wrapper that automatically appends x-password header
@@ -1100,9 +1108,79 @@ async function fetchWaContacts() {
   }
 }
 
+// Check Google Classroom status and update UI
+async function checkClassroomStatus() {
+  try {
+    const response = await apiRequest('/api/classroom/status');
+    const status = await response.json();
+
+    if (status.error === 'CREDENTIALS_MISSING') {
+      classroomStatusBadge.textContent = 'Setup Required';
+      classroomStatusBadge.style.background = 'rgba(224, 86, 86, 0.2)';
+      classroomStatusBadge.style.color = '#f28b82';
+      classroomSetupAlert.style.display = 'block';
+      classroomConnectedContainer.style.display = 'none';
+      classroomDisconnectedContainer.style.display = 'none';
+      return;
+    }
+
+    classroomSetupAlert.style.display = 'none';
+    if (status.connected) {
+      classroomStatusBadge.textContent = 'Connected';
+      classroomStatusBadge.style.background = 'rgba(129, 199, 132, 0.2)';
+      classroomStatusBadge.style.color = '#81c784';
+      classroomConnectedContainer.style.display = 'flex';
+      classroomDisconnectedContainer.style.display = 'none';
+    } else {
+      classroomStatusBadge.textContent = 'Disconnected';
+      classroomStatusBadge.style.background = 'rgba(255, 255, 255, 0.05)';
+      classroomStatusBadge.style.color = 'var(--text-muted)';
+      classroomConnectedContainer.style.display = 'none';
+      classroomDisconnectedContainer.style.display = 'block';
+    }
+  } catch (err) {
+    console.error('Error checking Google Classroom status:', err);
+  }
+}
+
+// Connect Google Classroom click handler
+connectClassroomBtn.addEventListener('click', () => {
+  const authUrl = `/api/classroom/auth`;
+  window.open(authUrl, '_blank');
+  
+  const pollInterval = setInterval(async () => {
+    await checkClassroomStatus();
+    try {
+      const response = await fetch('/api/classroom/status');
+      const status = await response.json();
+      if (status.connected) {
+        clearInterval(pollInterval);
+      }
+    } catch (e) {
+      clearInterval(pollInterval);
+    }
+  }, 2000);
+});
+
+// Disconnect Google Classroom click handler
+disconnectClassroomBtn.addEventListener('click', async () => {
+  if (confirm('Are you sure you want to disconnect Google Classroom?')) {
+    try {
+      const response = await apiRequest('/api/classroom/disconnect');
+      const result = await response.json();
+      if (result.success) {
+        checkClassroomStatus();
+      }
+    } catch (err) {
+      console.error('Error disconnecting Classroom:', err);
+    }
+  }
+});
+
 // Initialize Loop
 async function init() {
   await checkStatus();
+  await checkClassroomStatus();
   
   if (isAuthenticated) {
     if (navTimelineBtn.classList.contains('active')) {
@@ -1117,6 +1195,7 @@ init();
 // Interval loops
 setInterval(checkStatus, 3000);   // Poll connectivity and active messages every 3s
 setInterval(fetchReplies, 10000); // Sync auto replies every 10s
+setInterval(checkClassroomStatus, 30000); // Poll Classroom status every 30s
 setInterval(() => {
   if (isAuthenticated && navTimelineBtn.classList.contains('active')) {
     fetchStatuses();

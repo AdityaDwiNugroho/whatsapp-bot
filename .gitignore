@@ -3,6 +3,7 @@ node_modules/
 
 # Authentication keys (DO NOT COMMIT THESE TO GITHUB)
 .wwebjs_auth/
+.wwebjs_auth_test/
 .wwebjs_cache/
 
 # Log files
@@ -17,3 +18,12 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Local Data / Tokens / History (DO NOT COMMIT)
+classroom_tokens.json
+messages_history.json
+statuses_history.json
+saved_contacts.json
+reminders.json
+bot.pid
+

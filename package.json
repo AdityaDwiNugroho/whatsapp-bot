@@ -10,6 +10,7 @@
   "dependencies": {
     "adm-zip": "^0.5.12",
     "express": "^4.19.2",
+    "googleapis": "^173.0.0",
     "mongoose": "^7.6.10",
     "qrcode": "^1.5.3",
     "qrcode-terminal": "^0.12.0",
