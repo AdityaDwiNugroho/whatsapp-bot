@@ -8,21 +8,24 @@ app_port: 7860
 pinned: false
 ---
 
-# Upgraded Cloud-Ready WhatsApp Bot and Dashboard
+# Cloud-Ready WhatsApp Automation Bot & Web Control Panel
 
-This is a containerized WhatsApp automation assistant and interactive web client. It combines a headless whatsapp-web.js client with a dark-theme, glassmorphic dashboard. It allows you to check chat history, send messages directly from the browser, and manage automated keywords--running 24/7 in the cloud so you do not have to leave your laptop open.
+This is a containerized WhatsApp automation assistant and interactive web client. It combines a headless whatsapp-web.js client with a dark-theme, glassmorphic dashboard. It allows you to check chat history, send messages directly from the browser, manage automated keywords, and connect with Google Classroom—running 24/7 in the cloud so you do not have to leave your laptop open.
 
 ---
 
 ## Features
 
 - **24/7 Headless WhatsApp Client:** Runs in Docker using Chromium/Puppeteer.
-- **Glassmorphic Web Dashboard:** Highly responsive, dark-mode styling with status indicators and stats.
-- **Persistent Sessions (Scan Once):** All security credentials, authentication keys, and cookies are stored in a persistent directory (.wwebjs_auth). You only need to scan the QR code once.
-- **History Logger:** Saves and displays message streams (incoming and outgoing) in a local messages_history.json file.
+- **Glassmorphic Web Dashboard:** Highly responsive, dark-mode styling with status indicators, statistics, and a settings console.
+- **Gemini 3.5 AI Assistant:** Auto-replies dynamically to messages when enabled. It features a dual-persona system that automatically responds formally to lecturers/teachers and casually to friends.
+- **Google Classroom Integration:** Authenticate with your Google account to query active courses, coursework/assignments, and announcements directly via WhatsApp.
+- **Smart Reply Filtering:** Automatically checks if you have already replied manually or if the bot has already answered, preventing redundant or out-of-order auto-replies.
+- **Persistent Sessions (Scan Once):** All credentials, authentication keys, and cookies are stored in a persistent directory (`.wwebjs_auth`). You only need to scan the QR code once.
+- **History Logger:** Saves and displays message streams (incoming and outgoing) in a local JSON database.
 - **Interactive Messaging:** Send messages directly to new or existing numbers from the web client.
 - **Keyword Auto-Replies:** Manage custom keyword match triggers and auto-responses dynamically.
-- **Lightweight Security:** Set the DASHBOARD_PASSWORD environment variable to block unauthorized dashboard access.
+- **Lightweight Security:** Set the `DASHBOARD_PASSWORD` environment variable to block unauthorized dashboard access.
 - **Local Audio Alerts:** Play sound notifications when new messages arrive.
 - **PC Remote Control (Secure Connector):** Execute terminal commands on your local PC or take a screenshot directly by texting your bot.
 
@@ -124,3 +127,37 @@ From your own phone, open your WhatsApp chat with your bot (or text yourself if 
 ### 4. Security Safeguards
 - **Owner Verification:** The bot strictly checks the sender's WhatsApp JID before forwarding commands. Only you (the owner) can execute `/pc` commands. If anyone else sends a command to your bot, it is ignored.
 - **Secret Encryption:** The connection between the script and the Space is encrypted and protected by the `DASHBOARD_PASSWORD`.
+
+---
+
+## Google Classroom Integration
+
+You can integrate your Google Classroom account to let the bot fetch coursework/assignments, active courses, and recent announcements.
+
+### 1. Enable Google Classroom API & Create Credentials
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
+2. Enable the **Google Classroom API**.
+3. Create an **OAuth Client ID** credential:
+   - Application Type: **Web application**.
+   - Authorized Redirect URI: `http://localhost:7860/api/classroom/callback`
+4. Copy the generated **Client ID** and **Client Secret**.
+5. In the **OAuth consent screen** settings, add your target school Gmail account as a **Test User**.
+
+### 2. Configure Environment
+Add your client credentials to your `.env` file:
+```env
+CLASSROOM_CLIENT_ID=your_client_id_here
+CLASSROOM_CLIENT_SECRET=your_client_secret_here
+```
+
+### 3. Connect on the Dashboard
+1. Run the bot (`npm start`) and visit `http://localhost:7860`.
+2. Go to the **Auto Replies** tab.
+3. Click **Connect Google Classroom** and authenticate with your school Google account.
+
+### 4. Commands
+Once connected, you can query Google Classroom via WhatsApp commands (owner only) or ask Gemini (available for both owner and contacts if enabled):
+- `/classroom courses` (or `kelas`) - Lists active classes.
+- `/classroom assignments` (or `tugas`) - Lists upcoming assignments.
+- `/classroom announcements` (or `pengumuman`) - Lists recent class notifications.
+
