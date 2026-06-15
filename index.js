@@ -598,7 +598,8 @@ function getPuppeteerConfig() {
   return {
     headless: true,
     executablePath: getChromeExecutablePath(),
-    protocolTimeout: 0, // Disable protocol timeout to prevent Runtime.callFunctionOn timeouts
+    // Disable protocol timeout to prevent Runtime.callFunctionOn timeouts
+    protocolTimeout: 0,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
@@ -1400,7 +1401,8 @@ function initializeClient() {
       console.log('[+] Fetching active chats from WhatsApp to pre-populate sidebar...');
       const chats = await client.getChats();
       let populatedCount = 0;
-      const maxPrepopulate = 25; // Limit startup prepopulation to prevent timeouts
+      // Limit startup prepopulation to prevent timeouts
+      const maxPrepopulate = 25;
       for (const chat of chats) {
         if (populatedCount >= maxPrepopulate) break;
         if (chat.isGroup || chat.id._serialized === 'status@broadcast') continue; // skip group chats and status broadcasts
